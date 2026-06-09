@@ -24,7 +24,6 @@ from .direct_executor import DirectExecutor
 from .state_paths import work_root
 
 _menu = None
-_windows: dict[str, object] = {}
 _executor = DirectExecutor()
 _attachment_store = media_tools.AttachmentStore()
 _safe_bridge_client = None
@@ -166,9 +165,9 @@ def _install_menu(mw) -> None:
     management_action.triggered.connect(show_management)
     menu.addAction(management_action)
 
-    bridge_status_action = QAction("Bridge Status", mw)
-    bridge_status_action.triggered.connect(show_bridge_status)
-    menu.addAction(bridge_status_action)
+    developer_panel_action = QAction("Developer Panel", mw)
+    developer_panel_action.triggered.connect(show_developer_panel)
+    menu.addAction(developer_panel_action)
 
     menu_bar = mw.form.menubar
     help_menu = getattr(mw.form, "menuHelp", None)
@@ -427,38 +426,10 @@ def show_management() -> None:
     management.show_management_dialog(mw, _executor.tools(), logger=_log)
 
 
-def show_bridge_status() -> None:
-    bridge = bridge_status.to_dict()
-    text = "\n".join(
-        [
-            f"State: {bridge.get('state', 'unknown')}",
-            f"Detail: {bridge.get('detail', '')}",
-            f"Last change: {bridge.get('last_change_ms', '')}",
-            "",
-            f"Anki tools: {len(_executor.tools())}",
-        ]
-    )
-    _show_text_dialog("Deckhand Bridge Status", text)
-
-
-def _show_text_dialog(title: str, text: str) -> None:
+def show_developer_panel() -> None:
     try:
         from aqt import mw
-        from aqt.qt import QDialog, QPlainTextEdit, QVBoxLayout
     except Exception as exc:  # pragma: no cover - only meaningful inside Anki/Qt
-        _log("menu.text_dialog_unavailable", title=title, error=str(exc), text=text)
+        _log("developer_panel.unavailable", error=str(exc))
         return
-
-    dialog = QDialog(mw)
-    dialog.setWindowTitle(title)
-    dialog.resize(760, 560)
-    layout = QVBoxLayout(dialog)
-    editor = QPlainTextEdit(dialog)
-    editor.setReadOnly(True)
-    editor.setPlainText(text)
-    layout.addWidget(editor)
-    key = f"text:{title}"
-    dialog.finished.connect(lambda _result, window_key=key: _windows.pop(window_key, None))
-    _windows[key] = dialog
-    dialog.show()
-    _log("menu.text_dialog_opened", title=title)
+    management.show_developer_panel(mw, _executor.tools(), logger=_log)

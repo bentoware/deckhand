@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import platform
 import socket
@@ -10,6 +11,7 @@ from typing import Any
 
 from . import companion
 from .bridge import bridge_status
+from .command_catalog import CommandCatalogEntry, command_catalog
 
 DEFAULT_CDP_PORT = 9222
 DEFAULT_COMPANION_URL = "http://127.0.0.1:18765"
@@ -33,6 +35,7 @@ CONNECTED_DISMISS_ACTION = "Dismiss"
 _banner_dismissed = False
 _banner_dock = None
 _management_dialog = None
+_developer_panel = None
 
 
 def cdp_port() -> int:
@@ -73,10 +76,12 @@ def companion_status() -> dict[str, Any]:
 
 
 def management_snapshot(anki_tools: list[str] | None = None) -> dict[str, Any]:
+    tools = anki_tools or []
     return {
         "cdp": cdp_status(),
         "companion": companion_status(),
-        "ankiTools": anki_tools or [],
+        "ankiTools": tools,
+        "toolCount": len(tools),
     }
 
 
@@ -205,71 +210,52 @@ def _build_management_dialog(mw: Any, anki_tools: list[str], logger=None) -> Any
     from aqt.qt import (
         QDialog,
         QDialogButtonBox,
+        QFrame,
         QGuiApplication,
-        QGridLayout,
-        QGroupBox,
+        QHBoxLayout,
         QLabel,
         QLineEdit,
         QPushButton,
-        QTextEdit,
         QVBoxLayout,
     )
 
     dialog = QDialog(mw)
-    dialog.setWindowTitle("Deckhand Setup")
-    dialog.resize(620, 420)
+    dialog.setWindowTitle("Deckhand")
+    dialog.resize(620, 360)
     layout = QVBoxLayout(dialog)
+    layout.setContentsMargins(24, 20, 24, 18)
+    layout.setSpacing(14)
 
     cdp = cdp_status()
-    browser_group = QGroupBox("Browser Control")
-    browser_layout = QGridLayout(browser_group)
-    browser_layout.addWidget(QLabel("Status"), 0, 0)
-    browser_layout.addWidget(QLabel("available" if cdp["open"] else "restart needed"), 0, 1)
-    browser_layout.addWidget(QLabel("What it enables"), 1, 0)
-    browser_detail = QLabel("Deckhand can inspect and operate Anki views more reliably.")
-    browser_detail.setWordWrap(True)
-    browser_layout.addWidget(browser_detail, 1, 1)
-    restart_anki_button = QPushButton(BANNER_PRIMARY_ACTION)
-    restart_anki_button.setEnabled(not bool(cdp["open"]))
-    restart_anki_button.clicked.connect(lambda _checked=False: restart_anki_with_cdp(cdp["port"], logger=logger))
-    browser_layout.addWidget(restart_anki_button, 2, 0, 1, 2)
-    layout.addWidget(browser_group)
-
-    companion_group = QGroupBox("Companion Server")
-    companion_layout = QGridLayout(companion_group)
     companion = companion_status()
     runtime = companion["runtime"]
-    companion_layout.addWidget(QLabel("Helper"), 0, 0)
-    companion_layout.addWidget(QLabel(_user_status(runtime.get("state", "unknown"))), 0, 1)
-    companion_layout.addWidget(QLabel("Connected to Anki"), 1, 0)
-    companion_layout.addWidget(QLabel("yes" if runtime.get("ownedByAnki") else "not yet"), 1, 1)
-    companion_layout.addWidget(QLabel("Bridge"), 2, 0)
-    companion_layout.addWidget(QLabel(_user_status(companion["ankiBridge"].get("state", "unknown"))), 2, 1)
-    detail = QLabel(str(companion["ankiBridge"].get("detail", "")))
-    detail.setWordWrap(True)
-    companion_layout.addWidget(QLabel("Detail"), 3, 0)
-    companion_layout.addWidget(detail, 3, 1)
-    restart_companion_button = QPushButton("Restart Deckhand helper")
-    restart_companion_button.setEnabled(bool(runtime.get("pid")))
+    bridge = companion["ankiBridge"]
+    connected = runtime.get("state") == "running" and runtime.get("ownedByAnki") and bridge.get("state") == "connected"
 
-    def restart_companion() -> None:
-        result = companion_module_restart(logger=logger)
-        if logger:
-            logger("management.companion_restart_requested", result=result)
+    heading = QLabel("Deckhand")
+    heading.setStyleSheet("font-size: 24px; font-weight: 700;")
+    layout.addWidget(heading)
 
-    restart_companion_button.clicked.connect(lambda _checked=False: restart_companion())
-    companion_layout.addWidget(restart_companion_button, 4, 0, 1, 2)
-    layout.addWidget(companion_group)
+    status_row = QHBoxLayout()
+    status_row.setSpacing(10)
+    status_row.addWidget(_status_pill("Connected" if connected else "Needs attention", "ok" if connected else "warn"))
+    summary = QLabel("Ready for MCP clients." if connected else "Check the local helper and Anki bridge below.")
+    summary.setWordWrap(True)
+    status_row.addWidget(summary, 1)
+    layout.addLayout(status_row)
 
-    install_group = QGroupBox("Connect an MCP client")
-    install_layout = QVBoxLayout(install_group)
     mcp_url = str(companion["mcpUrl"])
-    url_row = QGridLayout()
-    url_row.addWidget(QLabel("MCP server URL"), 0, 0)
+    mcp_card = _section_frame()
+    mcp_layout = QVBoxLayout(mcp_card)
+    mcp_layout.setContentsMargins(14, 12, 14, 12)
+    mcp_layout.setSpacing(8)
+    mcp_layout.addWidget(_section_title("MCP Connection"))
+    url_row = QHBoxLayout()
+    url_row.setSpacing(8)
     url_field = QLineEdit(mcp_url)
     url_field.setReadOnly(True)
-    url_row.addWidget(url_field, 0, 1)
-    copy_button = QPushButton("Copy MCP URL")
+    url_row.addWidget(url_field, 1)
+    copy_button = QPushButton("Copy")
 
     def copy_mcp_url() -> None:
         clipboard = QGuiApplication.clipboard()
@@ -279,19 +265,47 @@ def _build_management_dialog(mw: Any, anki_tools: list[str], logger=None) -> Any
             logger("management.mcp_url_copied")
 
     copy_button.clicked.connect(lambda _checked=False: copy_mcp_url())
-    url_row.addWidget(copy_button, 0, 2)
-    install_layout.addLayout(url_row)
+    url_row.addWidget(copy_button)
+    mcp_layout.addLayout(url_row)
+    hint = QLabel("Add this Streamable HTTP endpoint in your MCP client.")
+    hint.setStyleSheet("color: #666;")
+    mcp_layout.addWidget(hint)
+    layout.addWidget(mcp_card)
 
-    instructions = QTextEdit()
-    instructions.setReadOnly(True)
-    instructions.setPlainText(mcp_install_instructions(mcp_url))
-    install_layout.addWidget(instructions)
-    layout.addWidget(install_group, 1)
+    capability_card = _section_frame()
+    capability_layout = QVBoxLayout(capability_card)
+    capability_layout.setContentsMargins(14, 12, 14, 12)
+    capability_layout.setSpacing(8)
+    capability_layout.addWidget(_section_title("Capabilities"))
+    capability_layout.addLayout(_status_row("MCP tools", f"{len(anki_tools)} available", "ok" if anki_tools else "warn"))
+    capability_layout.addLayout(_status_row("Local helper", _user_status(runtime.get("state", "unknown")), "ok" if runtime.get("state") == "running" else "warn"))
+    capability_layout.addLayout(_status_row("Anki bridge", _user_status(bridge.get("state", "unknown")), "ok" if bridge.get("state") == "connected" else "warn"))
+    capability_layout.addLayout(_status_row("WebEngine control", "available" if cdp["open"] else "restart needed", "ok" if cdp["open"] else "warn"))
+    layout.addWidget(capability_card)
 
+    action_row = QHBoxLayout()
+    action_row.setSpacing(8)
+    if not cdp["open"]:
+        restart_anki_button = QPushButton(BANNER_PRIMARY_ACTION)
+        restart_anki_button.clicked.connect(lambda _checked=False: restart_anki_with_cdp(cdp["port"], logger=logger))
+        action_row.addWidget(restart_anki_button)
+    if runtime.get("pid"):
+        restart_companion_button = QPushButton("Restart helper")
+        restart_companion_button.clicked.connect(lambda _checked=False: _restart_companion_from_ui(logger=logger))
+        action_row.addWidget(restart_companion_button)
+    action_row.addStretch(1)
+    layout.addLayout(action_row)
+
+    footer = QHBoxLayout()
+    footer.addStretch(1)
+    developer_button = QPushButton("Developer Panel...")
+    developer_button.clicked.connect(lambda _checked=False: show_developer_panel(mw, anki_tools, logger=logger))
+    footer.addWidget(developer_button)
     buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
     buttons.rejected.connect(dialog.reject)
     buttons.accepted.connect(dialog.accept)
-    layout.addWidget(buttons)
+    footer.addWidget(buttons)
+    layout.addLayout(footer)
     return dialog
 
 
@@ -305,8 +319,271 @@ def mcp_install_instructions(mcp_url: str) -> str:
     )
 
 
+def show_developer_panel(mw: Any, anki_tools: list[str], logger=None) -> None:
+    global _developer_panel
+    if _developer_panel is not None:
+        try:
+            _developer_panel.show()
+            _developer_panel.raise_()
+            _developer_panel.activateWindow()
+            return
+        except Exception:
+            _developer_panel = None
+    try:
+        dialog = _build_developer_panel(mw, anki_tools, logger=logger)
+    except Exception as exc:  # noqa: BLE001 - surface Qt failures in a plain dialog
+        if logger:
+            logger("management.developer_panel_unavailable", error=str(exc))
+        raise
+    dialog.finished.connect(lambda _result: _clear_developer_panel())
+    _developer_panel = dialog
+    dialog.show()
+    if logger:
+        logger("management.developer_panel_opened")
+
+
+def _clear_developer_panel() -> None:
+    global _developer_panel
+    _developer_panel = None
+
+
+def _build_developer_panel(mw: Any, anki_tools: list[str], logger=None) -> Any:
+    from aqt.qt import QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QTabWidget, QVBoxLayout, QWidget
+
+    dialog = QDialog(mw)
+    dialog.setWindowTitle("Deckhand Developer Panel")
+    dialog.resize(820, 620)
+    layout = QVBoxLayout(dialog)
+
+    tabs = QTabWidget(dialog)
+    tabs.addTab(_build_tools_tab(tabs, anki_tools), "Tools")
+    tabs.addTab(_build_connection_tab(tabs, anki_tools), "Connection")
+    tabs.addTab(_build_webengine_tab(tabs, logger=logger), "WebEngine")
+    tabs.addTab(_build_logs_tab(tabs, anki_tools), "Logs")
+    layout.addWidget(tabs, 1)
+
+    buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+    buttons.rejected.connect(dialog.reject)
+    buttons.accepted.connect(dialog.accept)
+    layout.addWidget(buttons)
+    return dialog
+
+
+def _build_tools_tab(parent: Any, anki_tools: list[str]) -> Any:
+    from aqt.qt import QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QVBoxLayout, QWidget
+
+    widget = QWidget(parent)
+    layout = QVBoxLayout(widget)
+    search = QLineEdit()
+    search.setPlaceholderText("Search tools by name, namespace, or description")
+    layout.addWidget(search)
+
+    body = QHBoxLayout()
+    tool_list = QListWidget()
+    detail = QPlainTextEdit()
+    detail.setReadOnly(True)
+    body.addWidget(tool_list, 2)
+    body.addWidget(detail, 3)
+    layout.addLayout(body, 1)
+
+    models = tool_view_models(anki_tools)
+
+    def render_detail(model: dict[str, Any]) -> None:
+        detail.setPlainText(_tool_detail_text(model))
+
+    def refill() -> None:
+        needle = search.text().lower().strip()
+        tool_list.clear()
+        for model in models:
+            haystack = " ".join(
+                [
+                    str(model["name"]),
+                    str(model["namespace"]),
+                    str(model["description"]),
+                ]
+            ).lower()
+            if needle and needle not in haystack:
+                continue
+            item = QListWidgetItem(f"{model['name']}\n{model['description']}")
+            item.setData(256, model)
+            tool_list.addItem(item)
+        if tool_list.count():
+            tool_list.setCurrentRow(0)
+            render_detail(tool_list.currentItem().data(256))
+        else:
+            detail.setPlainText("No matching tools.")
+
+    def selection_changed() -> None:
+        item = tool_list.currentItem()
+        if item is not None:
+            render_detail(item.data(256))
+
+    search.textChanged.connect(lambda _text: refill())
+    tool_list.currentItemChanged.connect(lambda _current, _previous: selection_changed())
+    refill()
+    return widget
+
+
+def _build_connection_tab(parent: Any, anki_tools: list[str]) -> Any:
+    from aqt.qt import QFormLayout, QLabel, QWidget
+
+    widget = QWidget(parent)
+    layout = QFormLayout(widget)
+    companion = companion_status()
+    runtime = companion["runtime"]
+    profile = _safe_profile()
+    layout.addRow("MCP endpoint", QLabel(str(companion["mcpUrl"])))
+    layout.addRow("Companion URL", QLabel(str(companion["httpUrl"])))
+    layout.addRow("Bridge URL", QLabel(str(companion["bridgeUrl"])))
+    layout.addRow("Helper state", QLabel(_user_status(runtime.get("state", "unknown"))))
+    layout.addRow("Bridge state", QLabel(_user_status(companion["ankiBridge"].get("state", "unknown"))))
+    layout.addRow("Bridge detail", QLabel(str(companion["ankiBridge"].get("detail", ""))))
+    layout.addRow("Profile", QLabel(str(profile.get("name") or "unknown")))
+    layout.addRow("Collection open", QLabel("yes" if profile.get("collectionOpen") else "no"))
+    layout.addRow("Effective tools", QLabel(str(len(anki_tools))))
+    return widget
+
+
+def _build_webengine_tab(parent: Any, logger=None) -> Any:
+    from aqt.qt import QFormLayout, QLabel, QPushButton, QWidget
+
+    widget = QWidget(parent)
+    layout = QFormLayout(widget)
+    cdp = cdp_status()
+    layout.addRow("Status", QLabel("available" if cdp["open"] else "restart needed"))
+    layout.addRow("Host", QLabel(str(cdp["host"])))
+    layout.addRow("Port", QLabel(str(cdp["port"])))
+    layout.addRow("Version URL", QLabel(str(cdp["url"])))
+    layout.addRow("Launch env", QLabel(str(cdp["launchEnv"])))
+    restart = QPushButton(BANNER_PRIMARY_ACTION)
+    restart.setEnabled(not bool(cdp["open"]))
+    restart.clicked.connect(lambda _checked=False: restart_anki_with_cdp(cdp["port"], logger=logger))
+    layout.addRow("Action", restart)
+    return widget
+
+
+def _build_logs_tab(parent: Any, anki_tools: list[str]) -> Any:
+    from aqt.qt import QPlainTextEdit, QVBoxLayout, QWidget
+
+    widget = QWidget(parent)
+    layout = QVBoxLayout(widget)
+    diagnostics = QPlainTextEdit()
+    diagnostics.setReadOnly(True)
+    snapshot = management_snapshot(anki_tools)
+    diagnostics.setPlainText(json.dumps(snapshot, indent=2, sort_keys=True))
+    layout.addWidget(diagnostics)
+    return widget
+
+
+def tool_view_models(anki_tools: list[str]) -> list[dict[str, Any]]:
+    catalog_by_name: dict[str, CommandCatalogEntry] = {entry.name: entry for entry in command_catalog()}
+    models: list[dict[str, Any]] = []
+    for name in sorted(set(anki_tools)):
+        entry = catalog_by_name.get(name)
+        schema = entry.input_schema.to_dict() if entry else {}
+        required = list(schema.get("required", [])) if isinstance(schema, dict) else []
+        annotations = _tool_annotations(name, entry)
+        models.append(
+            {
+                "name": name,
+                "namespace": ".".join(name.split(".")[:2]),
+                "description": entry.description if entry else "No catalog metadata",
+                "requiredInputs": required,
+                "inputSchema": schema,
+                "annotations": annotations,
+                "known": entry is not None,
+            }
+        )
+    return models
+
+
+def _tool_annotations(name: str, entry: CommandCatalogEntry | None) -> dict[str, bool]:
+    risk = entry.risk if entry else "unknown"
+    return {
+        "readOnlyHint": risk in {"read", "ui"},
+        "destructiveHint": risk in {"destructive", "dev_exec", "system_exec"},
+        "idempotentHint": bool(entry and risk == "read" and name.endswith((".status", ".list", ".list_pages", ".get_profile", ".registry"))),
+        "openWorldHint": bool(getattr(entry, "open_world", False)) if entry else False,
+    }
+
+
+def _tool_detail_text(model: dict[str, Any]) -> str:
+    annotations = ", ".join(label for label, enabled in model["annotations"].items() if enabled) or "mutating/local"
+    required = ", ".join(model["requiredInputs"]) or "none"
+    return "\n".join(
+        [
+            str(model["name"]),
+            "",
+            str(model["description"]),
+            "",
+            f"Namespace: {model['namespace']}",
+            f"Annotations: {annotations}",
+            f"Required inputs: {required}",
+            "",
+            "Input schema:",
+            json.dumps(model["inputSchema"], indent=2, sort_keys=True),
+        ]
+    )
+
+
+def _safe_profile() -> dict[str, Any]:
+    try:
+        from aqt import mw
+        from . import context_tools
+
+        return context_tools.current_profile(mw)
+    except Exception:
+        return {"name": None, "collectionOpen": False}
+
+
 def _user_status(value: Any) -> str:
     return str(value or "unknown").replace("_", " ")
+
+
+def _status_pill(text: str, state: str) -> Any:
+    from aqt.qt import QLabel
+
+    label = QLabel(text)
+    colors = {
+        "ok": ("#0f5132", "#d1e7dd"),
+        "warn": ("#664d03", "#fff3cd"),
+    }
+    fg, bg = colors.get(state, ("#343a40", "#e9ecef"))
+    label.setStyleSheet(f"color: {fg}; background: {bg}; border-radius: 10px; padding: 3px 9px; font-weight: 600;")
+    return label
+
+
+def _section_frame() -> Any:
+    from aqt.qt import QFrame
+
+    frame = QFrame()
+    frame.setObjectName("deckhand_section")
+    frame.setStyleSheet("#deckhand_section { border: 1px solid #d9d9d9; border-radius: 8px; background: #fafafa; }")
+    return frame
+
+
+def _section_title(text: str) -> Any:
+    from aqt.qt import QLabel
+
+    label = QLabel(text)
+    label.setStyleSheet("font-weight: 700;")
+    return label
+
+
+def _status_row(label: str, value: str, state: str) -> Any:
+    from aqt.qt import QHBoxLayout, QLabel
+
+    row = QHBoxLayout()
+    row.setSpacing(8)
+    row.addWidget(QLabel(label), 1)
+    row.addWidget(_status_pill(value, state))
+    return row
+
+
+def _restart_companion_from_ui(logger=None) -> None:
+    result = companion_module_restart(logger=logger)
+    if logger:
+        logger("management.companion_restart_requested", result=result)
 
 
 def companion_module_restart(logger=None) -> dict[str, Any]:

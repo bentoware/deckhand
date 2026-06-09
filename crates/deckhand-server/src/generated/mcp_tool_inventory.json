@@ -1004,10 +1004,15 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Return a compact DOM snapshot of an Anki Qt WebEngine CDP page. If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous.",
+      "description": "Take a compact text snapshot of an Anki Qt WebEngine CDP page, with Chrome DevTools-style uid refs for visible controls and content. Always use the latest snapshot before interacting by uid. If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous.",
       "input_schema": {
         "additionalProperties": true,
         "properties": {
+          "filePath": {
+            "description": "Write snapshot text to a local file and return metadata instead of attaching the full text.",
+            "minLength": 1,
+            "type": "string"
+          },
           "host": {
             "description": "Local CDP host. Defaults to 127.0.0.1 and must be localhost.",
             "type": "string"
@@ -1016,7 +1021,7 @@
             "minimum": 1,
             "type": "integer"
           },
-          "maxTextChars": {
+          "maxTreeNodes": {
             "minimum": 1,
             "type": "integer"
           },
@@ -1050,6 +1055,10 @@
           "urlContains": {
             "description": "Substring that must appear in the target page URL.",
             "type": "string"
+          },
+          "verbose": {
+            "description": "Include more visible non-interactive content in the snapshot tree.",
+            "type": "boolean"
           },
           "webSocketDebuggerUrl": {
             "description": "Exact CDP page WebSocket URL from list_pages. Overrides all other target selectors.",
@@ -1223,7 +1232,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Click in an Anki Qt WebEngine CDP page by selector, visible text, or coordinates; this changes UI state. If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous.",
+      "description": "Click in an Anki Qt WebEngine CDP page by latest snapshot uid, selector, visible text, or coordinates; this changes UI state. If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous.",
       "input_schema": {
         "additionalProperties": true,
         "properties": {
@@ -1277,6 +1286,10 @@
             "description": "Case-insensitive substring of the target page title.",
             "type": "string"
           },
+          "uid": {
+            "description": "Element uid from the latest take_snapshot result.",
+            "type": "string"
+          },
           "urlContains": {
             "description": "Substring that must appear in the target page URL.",
             "type": "string"
@@ -1307,7 +1320,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Type text into an Anki Qt WebEngine CDP page; this changes UI state. If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous.",
+      "description": "Type text into an Anki Qt WebEngine CDP page, optionally focusing by latest snapshot uid or selector first; this changes UI state. If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous.",
       "input_schema": {
         "additionalProperties": true,
         "properties": {
@@ -1350,6 +1363,10 @@
           },
           "title": {
             "description": "Case-insensitive substring of the target page title.",
+            "type": "string"
+          },
+          "uid": {
+            "description": "Element uid from the latest take_snapshot result.",
             "type": "string"
           },
           "urlContains": {

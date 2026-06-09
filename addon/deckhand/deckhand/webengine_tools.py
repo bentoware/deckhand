@@ -23,6 +23,7 @@ MAX_WS_BYTES = 8_000_000
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
 MAX_SNAPSHOT_TEXT_CHARS = 12_000
 MAX_SNAPSHOT_ELEMENTS = 200
+MAX_SNAPSHOT_TREE_NODES = 250
 KEY_DEFINITIONS = {
     "enter": ("Enter", "Enter", 13),
     "return": ("Enter", "Enter", 13),
@@ -112,24 +113,41 @@ def send_cdp_command(args: dict[str, Any]) -> dict[str, object]:
 
 def take_snapshot(args: dict[str, Any]) -> dict[str, object]:
     started = perf_counter()
-    max_text_chars = _positive_int(args.get("maxTextChars"), MAX_SNAPSHOT_TEXT_CHARS)
     max_elements = _positive_int(args.get("maxElements"), MAX_SNAPSHOT_ELEMENTS)
+    max_tree_nodes = _positive_int(args.get("maxTreeNodes"), MAX_SNAPSHOT_TREE_NODES)
+    verbose = bool(args.get("verbose", False))
     target = _resolve_target(args)
     response = _cdp_request(
         target.websocket_url,
         "Runtime.evaluate",
         {
-            "expression": _snapshot_expression(max_text_chars, max_elements),
+            "expression": _snapshot_expression(max_elements, max_tree_nodes, verbose),
             "returnByValue": True,
             "awaitPromise": True,
         },
         timeout=float(args.get("timeoutSeconds", 5.0)),
     )
+    snapshot = sanitize_result(_runtime_value(response))
+    file_path = str(args.get("filePath", "")).strip()
+    if file_path:
+        path = Path(file_path).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        text = snapshot.get("text", "") if isinstance(snapshot, dict) else ""
+        path.write_text(str(text), encoding="utf-8")
+        return {
+            "ok": True,
+            "webSocketDebuggerUrl": target.websocket_url,
+            "target": target.target,
+            "snapshotId": snapshot.get("snapshotId") if isinstance(snapshot, dict) else None,
+            "path": str(path),
+            "bytes": path.stat().st_size,
+            "durationMs": _elapsed_ms(started),
+        }
     return {
         "ok": True,
         "webSocketDebuggerUrl": target.websocket_url,
         "target": target.target,
-        "snapshot": sanitize_result(_runtime_value(response)),
+        "snapshot": snapshot,
         "durationMs": _elapsed_ms(started),
     }
 
@@ -208,15 +226,16 @@ def click(args: dict[str, Any]) -> dict[str, object]:
     websocket_url = target.websocket_url
     timeout = float(args.get("timeoutSeconds", 5.0))
     if x is None or y is None:
+        uid = str(args.get("uid", "")).strip()
         selector = str(args.get("selector", "")).strip()
         text = str(args.get("text", "")).strip()
-        if not selector and not text:
+        if not uid and not selector and not text:
             raise WebEngineToolError("click_target_required")
         resolved = _cdp_request(
             websocket_url,
             "Runtime.evaluate",
             {
-                "expression": _element_center_expression(selector=selector, text=text),
+                "expression": _element_center_expression(uid=uid, selector=selector, text=text),
                 "returnByValue": True,
                 "awaitPromise": True,
             },
@@ -244,6 +263,7 @@ def click(args: dict[str, Any]) -> dict[str, object]:
         "y": float(y),
         "button": button,
         "clickCount": click_count,
+        "uid": str(args.get("uid", "")).strip() or None,
         "durationMs": _elapsed_ms(started),
     }
 
@@ -256,13 +276,14 @@ def type_text(args: dict[str, Any]) -> dict[str, object]:
     target = _resolve_target(args)
     websocket_url = target.websocket_url
     timeout = float(args.get("timeoutSeconds", 5.0))
+    uid = str(args.get("uid", "")).strip()
     selector = str(args.get("selector", "")).strip()
-    if selector:
+    if uid or selector:
         response = _cdp_request(
             websocket_url,
             "Runtime.evaluate",
             {
-                "expression": _focus_expression(selector, clear=bool(args.get("clear", False))),
+                "expression": _focus_expression(uid=uid, selector=selector, clear=bool(args.get("clear", False))),
                 "returnByValue": True,
                 "awaitPromise": True,
             },
@@ -277,6 +298,7 @@ def type_text(args: dict[str, Any]) -> dict[str, object]:
         "webSocketDebuggerUrl": websocket_url,
         "target": target.target,
         "textLength": len(text),
+        "uid": uid or None,
         "selector": selector or None,
         "durationMs": _elapsed_ms(started),
     }
@@ -423,43 +445,144 @@ def _json_literal(value: Any) -> str:
     return json.dumps(value, separators=(",", ":"))
 
 
-def _snapshot_expression(max_text_chars: int, max_elements: int) -> str:
+def _snapshot_expression(max_elements: int, max_tree_nodes: int, verbose: bool) -> str:
     return f"""(() => {{
+  const maxElements = {_json_literal(max_elements)};
+  let remainingTreeNodes = {_json_literal(max_tree_nodes)};
+  const verbose = {_json_literal(verbose)};
+  const snapshotId = String((window.__deckhandSnapshotCounter = (window.__deckhandSnapshotCounter || 0) + 1));
+  const uidFor = (index) => `e${{snapshotId}}_${{index}}`;
   const visible = (el) => {{
     const style = getComputedStyle(el);
     const rect = el.getBoundingClientRect();
     return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0;
   }};
-  const label = (el) => (el.getAttribute("aria-label") || el.getAttribute("title") || el.getAttribute("placeholder") || el.innerText || el.value || "").trim();
-  const candidates = Array.from(document.querySelectorAll('a,button,input,textarea,select,[role],[contenteditable="true"]'))
-    .filter(visible)
-    .slice(0, {_json_literal(max_elements)});
+  const directText = (el) => Array.from(el.childNodes)
+    .filter((node) => node.nodeType === Node.TEXT_NODE)
+    .map((node) => node.textContent || "")
+    .join(" ")
+    .replace(/\\s+/g, " ")
+    .trim();
+  const label = (el) => (el.getAttribute("aria-label") || el.getAttribute("title") || el.getAttribute("alt") || el.getAttribute("placeholder") || (("value" in el) ? el.value : "") || directText(el) || "").trim();
+  const role = (el) => {{
+    const explicit = el.getAttribute("role");
+    if (explicit) return explicit;
+    const tag = el.tagName.toLowerCase();
+    if (tag === "a" && el.hasAttribute("href")) return "link";
+    if (tag === "button") return "button";
+    if (tag === "textarea") return "textbox";
+    if (tag === "select") return "combobox";
+    if (tag === "img") return "image";
+    if (/^h[1-6]$/.test(tag)) return "heading";
+    if (tag === "ul" || tag === "ol") return "list";
+    if (tag === "li") return "listitem";
+    if (tag === "input") {{
+      const type = (el.getAttribute("type") || "text").toLowerCase();
+      if (type === "checkbox") return "checkbox";
+      if (type === "radio") return "radio";
+      if (["button", "submit", "reset"].includes(type)) return "button";
+      return "textbox";
+    }}
+    if (el.isContentEditable) return "textbox";
+    return "generic";
+  }};
+  const interactive = (el) => {{
+    const tag = el.tagName.toLowerCase();
+    return tag === "a" || tag === "button" || tag === "input" || tag === "textarea" || tag === "select" || el.isContentEditable || el.hasAttribute("role") || el.tabIndex >= 0;
+  }};
+  const interesting = (el) => {{
+    if (!visible(el)) return false;
+    if (interactive(el)) return true;
+    const tag = el.tagName.toLowerCase();
+    if (/^h[1-6]$/.test(tag) || tag === "img" || tag === "li") return true;
+    return verbose && !!label(el);
+  }};
+  const selectorFor = (el) => {{
+    if (el.id) return `#${{CSS.escape(el.id)}}`;
+    const parts = [];
+    let current = el;
+    while (current && current.nodeType === Node.ELEMENT_NODE && current !== document.body) {{
+      const parent = current.parentElement;
+      if (!parent) break;
+      const tag = current.tagName.toLowerCase();
+      const siblings = Array.from(parent.children).filter((child) => child.tagName === current.tagName);
+      const suffix = siblings.length > 1 ? `:nth-of-type(${{siblings.indexOf(current) + 1}})` : "";
+      parts.unshift(`${{tag}}${{suffix}}`);
+      current = parent;
+    }}
+    return parts.length ? `body > ${{parts.join(" > ")}}` : "body";
+  }};
+  const recordFor = (el, index) => {{
+    const rect = el.getBoundingClientRect();
+    const record = {{
+      uid: uidFor(index),
+      role: role(el),
+      name: label(el).slice(0, 240) || null,
+      tag: el.tagName.toLowerCase(),
+      selector: selectorFor(el),
+      bounds: {{ x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) }},
+    }};
+    if (el.disabled || el.getAttribute("aria-disabled") === "true") record.disabled = true;
+    if (document.activeElement === el) record.focused = true;
+    if ("checked" in el) record.checked = !!el.checked;
+    if (el.getAttribute("aria-expanded") !== null) record.expanded = el.getAttribute("aria-expanded") === "true";
+    return record;
+  }};
+  const elements = Array.from(document.querySelectorAll("body *"))
+    .filter(interesting)
+    .slice(0, maxElements)
+    .map((el, index) => recordFor(el, index));
+  const selectorToElement = new Map(elements.map((item) => [item.selector, item]));
+  const buildTree = (el) => {{
+    if (!visible(el) || remainingTreeNodes <= 0) return null;
+    const children = [];
+    for (const child of Array.from(el.children)) {{
+      const childNode = buildTree(child);
+      if (childNode) children.push(childNode);
+      if (remainingTreeNodes <= 0) break;
+    }}
+    const own = selectorToElement.get(selectorFor(el));
+    const text = directText(el);
+    if (!own && !children.length && !text) return null;
+    remainingTreeNodes -= 1;
+    const node = own ? {{ uid: own.uid, role: own.role, name: own.name }} : {{ role: role(el), name: text.slice(0, 240) || null }};
+    if (children.length) node.children = children;
+    return node;
+  }};
+  const formatNode = (node, depth = 0) => {{
+    if (!node) return "";
+    const attrs = [];
+    if (node.uid) attrs.push(`uid=${{node.uid}}`);
+    if (node.role) attrs.push(node.role);
+    if (node.name) attrs.push(`"${{node.name}}"`);
+    return `${{" ".repeat(depth * 2)}}${{attrs.join(" ")}}\\n` + (node.children || []).map((child) => formatNode(child, depth + 1)).join("");
+  }};
+  const root = buildTree(document.body) || {{ role: "document", name: document.title || null }};
+  const text = formatNode(root);
+  window.__deckhandSnapshot = {{
+    snapshotId,
+    elements: Object.fromEntries(elements.map((item) => [item.uid, item])),
+  }};
   return {{
+    snapshotId,
     title: document.title,
     url: location.href,
-    visibleText: (document.body ? document.body.innerText : "").slice(0, {_json_literal(max_text_chars)}),
-    elements: candidates.map((el, index) => {{
-      const rect = el.getBoundingClientRect();
-      return {{
-        index,
-        tag: el.tagName.toLowerCase(),
-        role: el.getAttribute("role") || null,
-        type: el.getAttribute("type") || null,
-        name: el.getAttribute("name") || null,
-        id: el.id || null,
-        text: label(el).slice(0, 240),
-        selector: el.id ? `#${{CSS.escape(el.id)}}` : null,
-        bounds: {{ x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) }}
-      }};
-    }})
+    text,
+    root,
+    elements: Object.fromEntries(elements.map((item) => [item.uid, item])),
+    elementCount: elements.length,
+    treeNodeCount: text.split("\\n").filter(Boolean).length,
+    verbose,
   }};
 }})()"""
 
 
-def _element_center_expression(*, selector: str, text: str) -> str:
+def _element_center_expression(*, uid: str, selector: str, text: str) -> str:
+    uid_json = _json_literal(uid)
     selector_json = _json_literal(selector)
     text_json = _json_literal(text.lower())
     return f"""(() => {{
+  const uid = {uid_json};
   const selector = {selector_json};
   const text = {text_json};
   const visible = (el) => {{
@@ -467,7 +590,13 @@ def _element_center_expression(*, selector: str, text: str) -> str:
     const rect = el.getBoundingClientRect();
     return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0;
   }};
-  let el = selector ? document.querySelector(selector) : null;
+  let el = null;
+  if (uid) {{
+    const item = window.__deckhandSnapshot && window.__deckhandSnapshot.elements && window.__deckhandSnapshot.elements[uid];
+    if (!item) return {{ ok: false, error: "snapshot_uid_not_found" }};
+    el = item.selector ? document.querySelector(item.selector) : null;
+  }}
+  if (!el && selector) el = document.querySelector(selector);
   if (!el && text) {{
     el = Array.from(document.querySelectorAll('a,button,input,textarea,select,label,[role],[contenteditable="true"],body *'))
       .find((candidate) => visible(candidate) && (candidate.innerText || candidate.value || candidate.getAttribute("aria-label") || "").toLowerCase().includes(text));
@@ -479,9 +608,17 @@ def _element_center_expression(*, selector: str, text: str) -> str:
 }})()"""
 
 
-def _focus_expression(selector: str, *, clear: bool) -> str:
+def _focus_expression(*, uid: str, selector: str, clear: bool) -> str:
     return f"""(() => {{
-  const el = document.querySelector({_json_literal(selector)});
+  const uid = {_json_literal(uid)};
+  const selector = {_json_literal(selector)};
+  let el = null;
+  if (uid) {{
+    const item = window.__deckhandSnapshot && window.__deckhandSnapshot.elements && window.__deckhandSnapshot.elements[uid];
+    if (!item) return {{ ok: false, error: "snapshot_uid_not_found" }};
+    el = item.selector ? document.querySelector(item.selector) : null;
+  }}
+  if (!el && selector) el = document.querySelector(selector);
   if (!el) return {{ ok: false, error: "selector_not_found" }};
   el.scrollIntoView({{ block: "center", inline: "center" }});
   el.focus();

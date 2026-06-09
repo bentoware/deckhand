@@ -73,13 +73,17 @@ class AddonShellTests(unittest.TestCase):
         self.assertTrue(all(entry.name.startswith("anki.") for entry in catalog))
         self.assertTrue(all(".dev." not in entry.name for entry in catalog))
 
-    def test_addon_menu_exposes_management_and_bridge_status(self):
+    def test_addon_menu_exposes_management_and_developer_panel(self):
         source = (ADDON / "deckhand" / "addon.py").read_text(encoding="utf-8")
 
         self.assertIn('QMenu("Deckhand", mw)', source)
         self.assertIn('QAction("Management", mw)', source)
-        self.assertIn('QAction("Bridge Status", mw)', source)
-        self.assertIn("menu.addAction(bridge_status_action)", source)
+        self.assertIn('QAction("Developer Panel", mw)', source)
+        self.assertIn("developer_panel_action.triggered.connect(show_developer_panel)", source)
+        self.assertIn("management.show_developer_panel(mw, _executor.tools(), logger=_log)", source)
+        self.assertNotIn('QAction("Bridge Status", mw)', source)
+        self.assertNotIn("def show_bridge_status", source)
+        self.assertNotIn("_show_text_dialog", source)
         self.assertNotIn('QMenu("Developer", mw)', source)
         self.assertNotIn("deckhand_developer_menu", source)
         self.assertNotIn('QAction("Lens Inspector", mw)', source)
@@ -201,6 +205,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertNotIn("features", snapshot)
         self.assertIn("ankiBridge", snapshot["companion"])
         self.assertEqual(snapshot["ankiTools"], ["anki.execute"])
+        self.assertEqual(snapshot["toolCount"], 1)
 
     def test_companion_uses_bundled_server_path_for_platform(self):
         path = companion.bundled_server_path()
@@ -330,7 +335,7 @@ class AddonShellTests(unittest.TestCase):
     def test_management_has_companion_restart_action(self):
         source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
 
-        self.assertIn('QPushButton("Restart Deckhand helper")', source)
+        self.assertIn('QPushButton("Restart helper")', source)
         self.assertIn("companion.restart_companion", source)
         self.assertIn("management.companion_restart_requested", source)
 
@@ -381,16 +386,44 @@ class AddonShellTests(unittest.TestCase):
         self.assertNotIn("enable_lens_inspector", config)
         self.assertFalse((ADDON / "deckhand" / "anki_lens").exists())
         self.assertNotIn('QCheckBox("Enable Lens Inspector")', management_body)
-        self.assertIn('dialog.setWindowTitle("Deckhand Setup")', management_body)
-        self.assertIn('QPushButton("Restart Deckhand helper")', management_body)
-        self.assertIn('QGroupBox("Connect an MCP client")', management_body)
+        self.assertIn('dialog.setWindowTitle("Deckhand")', management_body)
+        self.assertIn('QPushButton("Restart helper")', management_body)
+        self.assertIn('_section_title("MCP Connection")', management_body)
+        self.assertIn('_section_title("Capabilities")', management_body)
         self.assertIn('QLineEdit(mcp_url)', management_body)
-        self.assertIn('QPushButton("Copy MCP URL")', management_body)
+        self.assertIn('QPushButton("Copy")', management_body)
         self.assertIn("QGuiApplication.clipboard()", management_body)
-        self.assertIn("mcp_install_instructions(mcp_url)", management_body)
-        self.assertNotIn("QTabWidget", management_body)
+        self.assertIn('QPushButton("Developer Panel...")', management_body)
+        self.assertNotIn("QTextEdit", management_body)
+        self.assertNotIn("QGroupBox", management_body)
         self.assertNotIn("def show_developer_dialog", management_source)
         self.assertNotIn("anki_lens", management_source)
+
+    def test_developer_panel_exposes_effective_tool_inspector(self):
+        source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
+
+        self.assertIn("def show_developer_panel", source)
+        self.assertIn('dialog.setWindowTitle("Deckhand Developer Panel")', source)
+        self.assertIn('tabs.addTab(_build_tools_tab(tabs, anki_tools), "Tools")', source)
+        self.assertIn('tabs.addTab(_build_connection_tab(tabs, anki_tools), "Connection")', source)
+        self.assertIn('tabs.addTab(_build_webengine_tab(tabs, logger=logger), "WebEngine")', source)
+        self.assertIn('tabs.addTab(_build_logs_tab(tabs, anki_tools), "Logs")', source)
+        self.assertIn('search.setPlaceholderText("Search tools by name, namespace, or description")', source)
+        self.assertIn("tool_view_models(anki_tools)", source)
+        self.assertIn("QPlainTextEdit", source)
+
+    def test_tool_view_models_join_live_tools_with_catalog_metadata(self):
+        models = management.tool_view_models(["anki.execute", "anki.webengine.status", "anki.removed.prototype"])
+        by_name = {model["name"]: model for model in models}
+
+        self.assertEqual([model["name"] for model in models], ["anki.execute", "anki.removed.prototype", "anki.webengine.status"])
+        self.assertEqual(by_name["anki.execute"]["namespace"], "anki.execute")
+        self.assertIn("Execute Python inside Anki", by_name["anki.execute"]["description"])
+        self.assertTrue(by_name["anki.execute"]["annotations"]["destructiveHint"])
+        self.assertTrue(by_name["anki.webengine.status"]["annotations"]["readOnlyHint"])
+        self.assertTrue(by_name["anki.webengine.status"]["annotations"]["idempotentHint"])
+        self.assertFalse(by_name["anki.removed.prototype"]["known"])
+        self.assertEqual(by_name["anki.removed.prototype"]["description"], "No catalog metadata")
 
     def test_mcp_install_instructions_are_standard_http_only(self):
         instructions = management.mcp_install_instructions("http://127.0.0.1:18765/mcp")
@@ -689,19 +722,54 @@ class AddonShellTests(unittest.TestCase):
 
         def fake_request(_url, method, params, timeout):
             calls.append((method, params, timeout))
-            return {"id": 1, "result": {"result": {"value": {"title": "T", "url": "u", "visibleText": "hello", "elements": []}}}}
+            return {
+                "id": 1,
+                "result": {
+                    "result": {
+                        "value": {
+                            "snapshotId": "1",
+                            "title": "T",
+                            "url": "u",
+                            "text": 'uid=e1_0 button "Show Answer"\n',
+                            "root": {"uid": "e1_0", "role": "button", "name": "Show Answer"},
+                            "elements": {"e1_0": {"uid": "e1_0", "role": "button", "name": "Show Answer", "selector": "#show"}},
+                            "elementCount": 1,
+                            "treeNodeCount": 1,
+                            "verbose": False,
+                        }
+                    }
+                },
+            }
 
         target = webengine_tools.TargetResolution(
             "ws://127.0.0.1:9222/devtools/page/page-1",
             {"id": "page-1", "type": "page", "title": "main webview", "url": "u", "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/page-1", "selectionReason": "preferred_main_webview"},
         )
         with mock.patch.object(webengine_tools, "_resolve_target", return_value=target), mock.patch.object(webengine_tools, "_cdp_request", side_effect=fake_request):
-            result = webengine_tools.take_snapshot({"maxTextChars": 10, "maxElements": 2})
+            result = webengine_tools.take_snapshot({"maxElements": 2, "maxTreeNodes": 3})
 
         self.assertEqual(calls[0][0], "Runtime.evaluate")
-        self.assertIn("document.querySelectorAll", calls[0][1]["expression"])
-        self.assertEqual(result["snapshot"]["visibleText"], "hello")
+        self.assertIn("__deckhandSnapshot", calls[0][1]["expression"])
+        self.assertIn("uidFor", calls[0][1]["expression"])
+        self.assertEqual(result["snapshot"]["text"], 'uid=e1_0 button "Show Answer"\n')
+        self.assertEqual(result["snapshot"]["elements"]["e1_0"]["selector"], "#show")
         self.assertEqual(result["target"]["title"], "main webview")
+
+    def test_webengine_snapshot_can_write_text_artifact(self):
+        target = webengine_tools.TargetResolution(
+            "ws://127.0.0.1:9222/devtools/page/page-1",
+            {"id": "page-1", "type": "page", "title": "main webview", "url": "u", "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/page-1", "selectionReason": "preferred_main_webview"},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "snapshot.txt"
+            response = {"id": 1, "result": {"result": {"value": {"snapshotId": "7", "text": "uid=e7_0 button\n"}}}}
+            with mock.patch.object(webengine_tools, "_resolve_target", return_value=target), mock.patch.object(webengine_tools, "_cdp_request", return_value=response):
+                result = webengine_tools.take_snapshot({"filePath": str(output)})
+
+            self.assertEqual(output.read_text(encoding="utf-8"), "uid=e7_0 button\n")
+            self.assertEqual(result["snapshotId"], "7")
+            self.assertEqual(result["path"], str(output))
+            self.assertNotIn("snapshot", result)
 
     def test_webengine_screenshot_requires_file_path_and_writes_metadata_only(self):
         with self.assertRaises(webengine_tools.WebEngineToolError):
@@ -740,8 +808,8 @@ class AddonShellTests(unittest.TestCase):
         )
         with mock.patch.object(webengine_tools, "_resolve_target", return_value=target), mock.patch.object(webengine_tools, "_cdp_request", side_effect=fake_request):
             webengine_tools.evaluate_script({"script": "1 + 1"})
-            webengine_tools.click({"selector": "button"})
-            webengine_tools.type_text({"selector": "input", "text": "abc", "clear": True})
+            webengine_tools.click({"uid": "e1_0"})
+            webengine_tools.type_text({"uid": "e1_1", "text": "abc", "clear": True})
             webengine_tools.press_key({"key": "Enter"})
             webengine_tools.wait_for({"expression": "window.ready === true", "timeoutSeconds": 0.1})
 
@@ -750,6 +818,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("Input.dispatchMouseEvent", methods)
         self.assertIn("Input.insertText", methods)
         self.assertIn("Input.dispatchKeyEvent", methods)
+        self.assertTrue(any("snapshot_uid_not_found" in params.get("expression", "") for method, params in calls if method == "Runtime.evaluate"))
         self.assertTrue(any("window.ready" in params.get("expression", "") for method, params in calls if method == "Runtime.evaluate"))
 
     def test_webengine_console_and_network_tools_collect_observe_window_events(self):
