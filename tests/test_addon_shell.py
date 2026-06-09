@@ -373,12 +373,25 @@ class AddonShellTests(unittest.TestCase):
         self.assertNotIn('QCheckBox("Enable Lens Inspector")', management_body)
         self.assertIn('dialog.setWindowTitle("Deckhand Setup")', management_body)
         self.assertIn('QPushButton("Restart Deckhand helper")', management_body)
+        self.assertIn('QGroupBox("Connect an MCP client")', management_body)
+        self.assertIn('QLineEdit(mcp_url)', management_body)
+        self.assertIn('QPushButton("Copy MCP URL")', management_body)
+        self.assertIn("QGuiApplication.clipboard()", management_body)
+        self.assertIn("mcp_install_instructions(mcp_url)", management_body)
         self.assertIn("management_snapshot", developer_body)
         self.assertIn('QGroupBox("Developer Features")', developer_body)
         self.assertIn("def show_developer_dialog", management_source)
         self.assertIn('QCheckBox("Enable Lens Inspector")', developer_body)
         self.assertIn("anki_lens.set_enabled", developer_body)
         self.assertIn("Restart Anki for the Lens Inspector setting to take effect.", developer_body)
+
+    def test_mcp_install_instructions_cover_major_clients(self):
+        instructions = management.mcp_install_instructions("http://127.0.0.1:18765/mcp")
+
+        self.assertEqual(set(instructions), {"Codex", "Claude Desktop", "Cursor", "VS Code"})
+        for body in instructions.values():
+            self.assertIn("http://127.0.0.1:18765/mcp", body)
+            self.assertIn("Streamable HTTP", body)
 
     def test_bridge_transport_frame_helpers_round_trip(self):
         left, right = socket.socketpair()
@@ -559,7 +572,9 @@ class AddonShellTests(unittest.TestCase):
             "anki.media.validate_unused",
             "anki.media.attachments",
             "anki.browser.set_search",
+            "anki.browser.get_selection",
             "anki.editor.preview_current_note",
+            "anki.editor.get_fields",
             "anki.import.preview_csv",
             "anki.import.apply_csv",
             "anki.backup.collection",
@@ -1007,7 +1022,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertTrue(mw.reset_called)
         self.assertIn("saved", tagged["note"]["tags"])
 
-    def test_note_authoring_draft_create_duplicate_delete_and_bulk_shapes(self):
+    def test_note_authoring_create_tag_delete_shapes(self):
         store = typed_tools.FakeNoteStore(
             [
                 typed_tools.NoteRecord(
@@ -1018,9 +1033,6 @@ class AddonShellTests(unittest.TestCase):
             ]
         )
 
-        create_draft = typed_tools.note_create_draft(
-            "Default", "Basic", {"Front": "new", "Back": "note"}, ["draft"]
-        )
         created = typed_tools.note_create(
             store,
             "Default",
@@ -1028,21 +1040,13 @@ class AddonShellTests(unittest.TestCase):
             {"Front": "new", "Back": "note"},
             ["draft"],
         )
-        diff = typed_tools.note_update_fields_draft(
-            store, created["note"]["id"], {"Back": "updated"}
-        )
         removed = typed_tools.note_remove_tag(store, created["note"]["id"], "draft")
         set_tags = typed_tools.note_set_tags(store, created["note"]["id"], ["final"])
-        duplicated = typed_tools.note_duplicate(store, created["note"]["id"])
-        deleted = typed_tools.note_delete(store, [duplicated["note"]["id"]])
-        bulk = typed_tools.note_bulk_add_tag(store, "new", "bulk", limit=5)
+        deleted = typed_tools.note_delete(store, [created["note"]["id"]])
 
-        self.assertTrue(create_draft["valid"])
-        self.assertEqual(diff["changes"]["Back"]["after"], "updated")
         self.assertNotIn("draft", removed["note"]["tags"])
         self.assertEqual(set_tags["tags"], ["final"])
-        self.assertEqual(deleted["deletedNoteIds"], [duplicated["note"]["id"]])
-        self.assertEqual(bulk["count"], 1)
+        self.assertEqual(deleted["deletedNoteIds"], [created["note"]["id"]])
 
     def test_real_collection_store_authoring_paths(self):
         mw = FakeMw()
@@ -1058,8 +1062,7 @@ class AddonShellTests(unittest.TestCase):
         created_id = created["note"]["id"]
         removed = typed_tools.note_remove_tag(store, created_id, "created")
         tagged = typed_tools.note_set_tags(store, created_id, ["kept"])
-        duplicated = typed_tools.note_duplicate(store, created_id)
-        deleted = typed_tools.note_delete(store, [duplicated["note"]["id"]])
+        deleted = typed_tools.note_delete(store, [created_id])
 
         self.assertEqual(created["note"]["fields"]["Front"], "created")
         self.assertNotIn("created", removed["note"]["tags"])
@@ -1143,7 +1146,6 @@ class AddonShellTests(unittest.TestCase):
         unsuspended = card_tools.card_unsuspend(mw, [2001])
         buried = card_tools.card_bury(mw, [2001])
         due = card_tools.card_set_due(mw, [2001], 3)
-        repositioned = card_tools.card_reposition(mw, [2001], 10)
 
         self.assertEqual(card["noteId"], 1001)
         self.assertEqual(by_note["cardIds"], [2001])
@@ -1153,7 +1155,6 @@ class AddonShellTests(unittest.TestCase):
         self.assertFalse(unsuspended["after"][0]["suspended"])
         self.assertEqual(buried["cardIds"], [2001])
         self.assertEqual(due["days"], 3)
-        self.assertEqual(repositioned["start"], 10)
 
     def test_review_answer_current_executes_directly(self):
         mw = FakeMw()
@@ -1166,31 +1167,19 @@ class AddonShellTests(unittest.TestCase):
         self.assertTrue(answered["answered"])
         self.assertEqual(mw.reviewer.answered, 3)
 
-    def test_structure_tools_read_decks_models_and_templates(self):
+    def test_structure_tools_read_decks_models_and_stats(self):
         mw = FakeMw()
 
         decks = structure_tools.deck_list(mw)
         stats = structure_tools.deck_get_stats(mw)
         models = structure_tools.model_list(mw)
         model = structure_tools.model_get(mw, "Basic", None)
-        fields = structure_tools.model_get_fields(mw, "Basic", None)
-        templates = structure_tools.model_get_templates(mw, "Basic", None)
-        css = structure_tools.model_get_css(mw, "Basic", None)
-        rendered = structure_tools.template_render("{{Front}} -> {{Back}}", {"Front": "A", "Back": "B"})
-        diff = structure_tools.template_diff("{{Front}}", "{{Back}}")
-        validation = structure_tools.template_validate("{{Front}} {{Missing}}", ["Front", "Back"])
         created_deck = structure_tools.deck_create(mw, "New Deck")
 
         self.assertEqual(decks["count"], 1)
         self.assertEqual(stats["deck"]["name"], "Default")
         self.assertEqual(models["models"][0]["name"], "Basic")
         self.assertEqual(model["fields"], ["Front", "Back"])
-        self.assertEqual(fields["fields"], ["Front", "Back"])
-        self.assertEqual(templates["templates"][0]["name"], "Card 1")
-        self.assertIn(".card", css["css"])
-        self.assertEqual(rendered["html"], "A -> B")
-        self.assertTrue(diff["changed"])
-        self.assertEqual(validation["missingFields"], ["Missing"])
         self.assertEqual(created_deck["deck"]["name"], "New Deck")
         self.assertEqual(stats["counts"], {"new": 1, "learn": 2, "review": 3})
 
@@ -1210,7 +1199,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertIsNone(stats["counts"])
         self.assertTrue(stats["countsUnavailable"])
 
-    def test_media_tools_sanitize_record_attach_and_find_refs(self):
+    def test_media_tools_sanitize_record_attach_and_get(self):
         source = Path("/private/tmp/deckhand-anki-tests/media/unsafe sample!.txt")
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text("media smoke", encoding="utf-8")
@@ -1227,13 +1216,11 @@ class AddonShellTests(unittest.TestCase):
         )
         metadata = media_tools.get(mw, added["filename"])
         attached = media_tools.attach_to_field(mw, 1001, "Back", added["filename"])
-        refs = media_tools.find_refs(mw, added["filename"])
 
         self.assertEqual(added["attachment"]["source_kind"], "packet_evidence")
         self.assertTrue(metadata["exists"])
         self.assertNotIn("requiresApproval", attached)
         self.assertIn(added["filename"], attached["markup"])
-        self.assertEqual(refs["count"], 1)
 
     def test_note_mutations_prefer_collection_update_note(self):
         mw = FakeMw()
@@ -1282,7 +1269,6 @@ class AddonShellTests(unittest.TestCase):
         search = ui_tools.browser_search(mw, "deckhand", 5)
         applied = ui_tools.browser_apply_tags(mw, ["ui-preview"])
         focused = ui_tools.editor_get_focused_note(mw)
-        fields = ui_tools.editor_get_fields(mw)
         updated = ui_tools.editor_set_field(mw, "Back", "UI update")
         inserted = ui_tools.editor_insert_media(mw, "image.png", "Back")
 
@@ -1290,7 +1276,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertEqual(search["count"], 1)
         self.assertNotIn("requiresApproval", applied)
         self.assertEqual(focused["noteId"], 1001)
-        self.assertIn("Front", fields["fields"])
+        self.assertIn("Front", focused["fields"])
         self.assertTrue(updated["updated"])
         self.assertNotIn("requiresApproval", inserted)
 

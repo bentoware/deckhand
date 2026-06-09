@@ -456,7 +456,6 @@ def _register_default_tools() -> None:
             waitForCompletion=bool(args.get("waitForCompletion", True)),
         ),
     )
-    _executor.register("anki.browser.get_selection", lambda _args: ui_tools.browser_get_selection(_mw()))
     _executor.register(
         "anki.browser.search",
         lambda args: ui_tools.browser_search(_mw(), str(args.get("query", "")), int(args.get("limit", 50))),
@@ -466,7 +465,6 @@ def _register_default_tools() -> None:
         lambda args: ui_tools.browser_apply_tags(_mw(), list(args.get("tags", []))),
     )
     _executor.register("anki.editor.get_focused_note", lambda _args: ui_tools.editor_get_focused_note(_mw()))
-    _executor.register("anki.editor.get_fields", lambda _args: ui_tools.editor_get_fields(_mw()))
     _executor.register(
         "anki.editor.set_field",
         lambda args: ui_tools.editor_set_field(_mw(), str(args.get("field", "")), str(args.get("value", ""))),

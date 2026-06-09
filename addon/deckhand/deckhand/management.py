@@ -220,10 +220,14 @@ def _build_management_dialog(mw: Any, anki_tools: list[str], logger=None) -> Any
     from aqt.qt import (
         QDialog,
         QDialogButtonBox,
+        QGuiApplication,
         QGridLayout,
         QGroupBox,
         QLabel,
+        QLineEdit,
         QPushButton,
+        QTabWidget,
+        QTextEdit,
         QVBoxLayout,
     )
 
@@ -273,11 +277,70 @@ def _build_management_dialog(mw: Any, anki_tools: list[str], logger=None) -> Any
     companion_layout.addWidget(restart_companion_button, 4, 0, 1, 2)
     layout.addWidget(companion_group)
 
+    install_group = QGroupBox("Connect an MCP client")
+    install_layout = QVBoxLayout(install_group)
+    mcp_url = str(companion["mcpUrl"])
+    url_row = QGridLayout()
+    url_row.addWidget(QLabel("MCP server URL"), 0, 0)
+    url_field = QLineEdit(mcp_url)
+    url_field.setReadOnly(True)
+    url_row.addWidget(url_field, 0, 1)
+    copy_button = QPushButton("Copy MCP URL")
+
+    def copy_mcp_url() -> None:
+        clipboard = QGuiApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(mcp_url)
+        if logger:
+            logger("management.mcp_url_copied")
+
+    copy_button.clicked.connect(lambda _checked=False: copy_mcp_url())
+    url_row.addWidget(copy_button, 0, 2)
+    install_layout.addLayout(url_row)
+
+    tabs = QTabWidget()
+    for provider, instructions in mcp_install_instructions(mcp_url).items():
+        tab = QTextEdit()
+        tab.setReadOnly(True)
+        tab.setPlainText(instructions)
+        tabs.addTab(tab, provider)
+    install_layout.addWidget(tabs)
+    layout.addWidget(install_group, 1)
+
     buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
     buttons.rejected.connect(dialog.reject)
     buttons.accepted.connect(dialog.accept)
     layout.addWidget(buttons)
     return dialog
+
+
+def mcp_install_instructions(mcp_url: str) -> dict[str, str]:
+    return {
+        "Codex": (
+            "1. Open Codex settings.\n"
+            "2. Add a Streamable HTTP MCP server.\n"
+            f"3. Paste this server URL: {mcp_url}\n"
+            "4. Save, then reconnect tools."
+        ),
+        "Claude Desktop": (
+            "1. Open Claude Desktop settings.\n"
+            "2. Add a custom connector or MCP server.\n"
+            f"3. Use Streamable HTTP with URL: {mcp_url}\n"
+            "4. Restart Claude Desktop if it asks you to reload MCP servers."
+        ),
+        "Cursor": (
+            "1. Open Cursor Settings, then MCP.\n"
+            "2. Add a new MCP server.\n"
+            f"3. Choose HTTP or Streamable HTTP and paste: {mcp_url}\n"
+            "4. Enable the server for the current workspace."
+        ),
+        "VS Code": (
+            "1. Open the MCP or agent tools settings for your VS Code extension.\n"
+            "2. Add a Streamable HTTP MCP server.\n"
+            f"3. Paste this URL: {mcp_url}\n"
+            "4. Reload the extension or window if tools do not appear."
+        ),
+    }
 
 
 def _build_developer_dialog(mw: Any, anki_tools: list[str], logger=None) -> Any:
