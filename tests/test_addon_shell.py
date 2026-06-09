@@ -27,11 +27,25 @@ from deckhand import companion
 from deckhand import media_tools
 from deckhand import runtime_tools
 from deckhand import structure_tools
+from deckhand import tool_visibility
 from deckhand import webengine_tools
 from deckhand.direct_executor import DirectExecutor
 
 
 class AddonShellTests(unittest.TestCase):
+    def setUp(self):
+        self._tool_visibility_tmp = tempfile.TemporaryDirectory()
+        self._tool_visibility_patch = mock.patch.object(
+            tool_visibility,
+            "VISIBILITY_PATH",
+            Path(self._tool_visibility_tmp.name) / "tool-visibility.json",
+        )
+        self._tool_visibility_patch.start()
+
+    def tearDown(self):
+        self._tool_visibility_patch.stop()
+        self._tool_visibility_tmp.cleanup()
+
     def test_capability_payload_marks_internal_bridge_path(self):
         payload = capability_payload()
         self.assertEqual(payload["paths"], ["safe_bridge"])
@@ -64,12 +78,22 @@ class AddonShellTests(unittest.TestCase):
         self.assertNotIn("anki.dev.backup_collection", names)
         self.assertTrue(all(name.startswith("anki.") for name in names))
 
-    def test_minimal_mcp_surface_advertises_only_execute_runtime_and_webengine_tools(self):
-        with mock.patch.dict(os.environ, {"DECKHAND_MCP_SURFACE": "minimal"}):
-            payload = anki_bridge_capability_payload()
+    def test_tool_visibility_defaults_to_all_tools(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "tool-visibility.json"
+            with mock.patch.object(tool_visibility, "VISIBILITY_PATH", path):
+                visible = tool_visibility.visible_tool_names(["anki.deck.list", "anki.execute"])
+
+        self.assertEqual(visible, ["anki.deck.list", "anki.execute"])
+
+    def test_tool_visibility_template_filters_capability_payload(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "tool-visibility.json"
+            with mock.patch.object(tool_visibility, "VISIBILITY_PATH", path):
+                tool_visibility.apply_template(tool_visibility.TEMPLATE_RUNTIME_WEBENGINE)
+                payload = anki_bridge_capability_payload()
 
         names = {tool["name"] for tool in payload["tools"]}
-        self.assertEqual(payload["surface"], "minimal")
         self.assertIn("anki.execute", names)
         self.assertIn("anki.runtime.info", names)
         self.assertIn("anki.webengine.take_snapshot", names)
@@ -446,7 +470,10 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn('tabs.addTab(_build_webengine_tab(tabs, logger=logger), "WebEngine")', source)
         self.assertIn('tabs.addTab(_build_logs_tab(tabs, anki_tools), "Logs")', source)
         self.assertIn('search.setPlaceholderText("Search tools by name, namespace, or description")', source)
-        self.assertIn("tool_view_models(anki_tools)", source)
+        self.assertIn('QPushButton("All tools")', source)
+        self.assertIn('QPushButton("Runtime + WebEngine")', source)
+        self.assertIn('QPushButton("Save visibility")', source)
+        self.assertIn("tool_visibility.save_visible_tool_names(visible)", source)
         self.assertIn("QPlainTextEdit", source)
 
     def test_tool_view_models_join_live_tools_with_catalog_metadata(self):

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import platform
 import sys
 from typing import Any
 
-from .command_catalog import anki_sdk_reference_paths, mcp_surface_mode
+from .command_catalog import anki_sdk_reference_paths
 
 
 def runtime_info(mw: Any) -> dict[str, Any]:
@@ -21,7 +20,6 @@ def runtime_info(mw: Any) -> dict[str, Any]:
         except Exception:
             media_dir = None
     return {
-        "surface": mcp_surface_mode(),
         "python": {
             "version": platform.python_version(),
             "executable": sys.executable,
@@ -48,9 +46,6 @@ def runtime_info(mw: Any) -> dict[str, Any]:
                 "anki": Path(anki_path).exists(),
                 "aqt": Path(aqt_path).exists(),
             },
-        },
-        "environment": {
-            "DECKHAND_MCP_SURFACE": os.environ.get("DECKHAND_MCP_SURFACE"),
         },
         "safety": [
             "Prefer Anki APIs via mw/aqt inside anki.execute.",

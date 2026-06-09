@@ -9,9 +9,6 @@ from typing import Any
 
 COMMAND_NAME_RE: Pattern[str] = compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$")
 CATALOG_VERSION = "v1"
-MCP_SURFACE_ENV = "DECKHAND_MCP_SURFACE"
-MINIMAL_MCP_SURFACE = "minimal"
-MINIMAL_MCP_TOOLS = frozenset({"anki.execute", "anki.runtime.info"})
 
 ANKI_SDK_ANKI_PATH_PLACEHOLDER = "{anki_sdk_anki_path}"
 ANKI_SDK_AQT_PATH_PLACEHOLDER = "{anki_sdk_aqt_path}"
@@ -109,14 +106,6 @@ def _entry(
         evidence=evidence,
         open_world=open_world,
     )
-
-
-def mcp_surface_mode() -> str:
-    return MINIMAL_MCP_SURFACE if os.environ.get(MCP_SURFACE_ENV, "").strip().lower() == MINIMAL_MCP_SURFACE else "default"
-
-
-def is_minimal_mcp_tool(name: str) -> bool:
-    return name in MINIMAL_MCP_TOOLS or name.startswith("anki.webengine.")
 
 
 NOTE_ID = {"type": "integer", "minimum": 1}

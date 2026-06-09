@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from .command_catalog import command_catalog, command_catalog_payload, is_minimal_mcp_tool, mcp_surface_mode
+from .command_catalog import command_catalog, command_catalog_payload
+from .tool_visibility import is_tool_visible
 
 
 @dataclass(frozen=True)
@@ -33,14 +34,13 @@ def anki_bridge_capabilities() -> list[ToolCapability]:
         if is_anki_bridge_tool_name(entry.name)
         and entry.status == "implemented"
         and "safe_bridge" in entry.paths
-        and (mcp_surface_mode() != "minimal" or is_minimal_mcp_tool(entry.name))
+        and is_tool_visible(entry.name)
     ]
 
 
 def capability_payload() -> dict[str, object]:
     return {
         "paths": ["safe_bridge"],
-        "surface": mcp_surface_mode(),
         "catalog": command_catalog_payload(),
         "tools": [capability.to_dict() for capability in anki_bridge_capabilities()],
     }

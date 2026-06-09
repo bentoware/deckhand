@@ -370,10 +370,35 @@ def _build_developer_panel(mw: Any, anki_tools: list[str], logger=None) -> Any:
 
 
 def _build_tools_tab(parent: Any, anki_tools: list[str]) -> Any:
-    from aqt.qt import QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QVBoxLayout, QWidget
+    from aqt.qt import (
+        QHBoxLayout,
+        QLabel,
+        QLineEdit,
+        QListWidget,
+        QListWidgetItem,
+        QPlainTextEdit,
+        QPushButton,
+        Qt,
+        QVBoxLayout,
+        QWidget,
+    )
+    from . import tool_visibility
 
     widget = QWidget(parent)
     layout = QVBoxLayout(widget)
+
+    templates = QHBoxLayout()
+    templates.addWidget(QLabel("Templates"))
+    all_button = QPushButton("All tools")
+    runtime_button = QPushButton("Runtime + WebEngine")
+    none_button = QPushButton("None")
+    save_button = QPushButton("Save visibility")
+    status = QLabel("")
+    for button in (all_button, runtime_button, none_button, save_button):
+        templates.addWidget(button)
+    templates.addWidget(status, 1)
+    layout.addLayout(templates)
+
     search = QLineEdit()
     search.setPlaceholderText("Search tools by name, namespace, or description")
     layout.addWidget(search)
@@ -386,27 +411,41 @@ def _build_tools_tab(parent: Any, anki_tools: list[str]) -> Any:
     body.addWidget(detail, 3)
     layout.addLayout(body, 1)
 
-    models = tool_view_models(anki_tools)
+    all_tool_names = tool_visibility.public_tool_names()
+    models = tool_view_models(all_tool_names)
+    visible_by_name = {name: name in set(tool_visibility.visible_tool_names(all_tool_names)) for name in all_tool_names}
+    updating = {"active": False}
 
     def render_detail(model: dict[str, Any]) -> None:
         detail.setPlainText(_tool_detail_text(model))
 
     def refill() -> None:
         needle = search.text().lower().strip()
+        updating["active"] = True
         tool_list.clear()
-        for model in models:
-            haystack = " ".join(
-                [
-                    str(model["name"]),
-                    str(model["namespace"]),
-                    str(model["description"]),
-                ]
-            ).lower()
-            if needle and needle not in haystack:
-                continue
-            item = QListWidgetItem(f"{model['name']}\n{model['description']}")
-            item.setData(256, model)
-            tool_list.addItem(item)
+        try:
+            for model in models:
+                haystack = " ".join(
+                    [
+                        str(model["name"]),
+                        str(model["namespace"]),
+                        str(model["description"]),
+                    ]
+                ).lower()
+                if needle and needle not in haystack:
+                    continue
+                item = QListWidgetItem(f"{model['name']}\n{model['description']}")
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(
+                    Qt.CheckState.Checked
+                    if visible_by_name.get(str(model["name"]), False)
+                    else Qt.CheckState.Unchecked
+                )
+                item.setData(256, model)
+                item.setData(257, str(model["name"]))
+                tool_list.addItem(item)
+        finally:
+            updating["active"] = False
         if tool_list.count():
             tool_list.setCurrentRow(0)
             render_detail(tool_list.currentItem().data(256))
@@ -418,8 +457,31 @@ def _build_tools_tab(parent: Any, anki_tools: list[str]) -> Any:
         if item is not None:
             render_detail(item.data(256))
 
+    def item_changed(item: Any) -> None:
+        if updating["active"]:
+            return
+        visible_by_name[str(item.data(257))] = item.checkState() == Qt.CheckState.Checked
+        status.setText("Unsaved changes")
+
+    def apply_template(template: str) -> None:
+        selected = set(tool_visibility.template_tool_names(template, all_tool_names))
+        for name in all_tool_names:
+            visible_by_name[name] = name in selected
+        status.setText("Unsaved changes")
+        refill()
+
+    def save_visibility() -> None:
+        visible = [name for name in all_tool_names if visible_by_name.get(name, False)]
+        tool_visibility.save_visible_tool_names(visible)
+        status.setText("Saved. Reconnect the MCP client to refresh visible tools.")
+
     search.textChanged.connect(lambda _text: refill())
     tool_list.currentItemChanged.connect(lambda _current, _previous: selection_changed())
+    tool_list.itemChanged.connect(item_changed)
+    all_button.clicked.connect(lambda _checked=False: apply_template(tool_visibility.TEMPLATE_ALL))
+    runtime_button.clicked.connect(lambda _checked=False: apply_template(tool_visibility.TEMPLATE_RUNTIME_WEBENGINE))
+    none_button.clicked.connect(lambda _checked=False: apply_template(tool_visibility.TEMPLATE_NONE))
+    save_button.clicked.connect(lambda _checked=False: save_visibility())
     refill()
     return widget
 
