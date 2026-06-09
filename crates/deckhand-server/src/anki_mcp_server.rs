@@ -173,9 +173,18 @@ mod tests {
     #[test]
     fn mcp_projection_uses_standard_annotations_without_approval_inputs() {
         let tools = mcp_tool_inventory();
-        let create = tools.iter().find(|tool| tool.name == "anki.note.create").unwrap();
-        let execute = tools.iter().find(|tool| tool.name == "anki.execute").unwrap();
-        let status = tools.iter().find(|tool| tool.name == "anki.webengine.status").unwrap();
+        let create = tools
+            .iter()
+            .find(|tool| tool.name == "anki.note.create")
+            .unwrap();
+        let execute = tools
+            .iter()
+            .find(|tool| tool.name == "anki.execute")
+            .unwrap();
+        let status = tools
+            .iter()
+            .find(|tool| tool.name == "anki.webengine.status")
+            .unwrap();
 
         assert_eq!(create.annotations["readOnlyHint"], false);
         assert_eq!(create.annotations["destructiveHint"], false);

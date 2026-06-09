@@ -23,6 +23,8 @@ const ANKI_SDK_ANKI_PATH_PLACEHOLDER: &str = "{anki_sdk_anki_path}";
 const ANKI_SDK_AQT_PATH_PLACEHOLDER: &str = "{anki_sdk_aqt_path}";
 const COMPANION_TOKEN_ENV: &str = "DECKHAND_COMPANION_TOKEN";
 const MCP_TOOL_TIMEOUT_ENV: &str = "DECKHAND_MCP_TOOL_TIMEOUT_SECONDS";
+const MCP_SURFACE_ENV: &str = "DECKHAND_MCP_SURFACE";
+const MINIMAL_MCP_SURFACE: &str = "minimal";
 const DEFAULT_MCP_TOOL_TIMEOUT_SECONDS: u64 = 120;
 
 #[derive(Debug, Clone, Serialize)]
@@ -185,7 +187,6 @@ impl BridgeHub {
             let _ = sender.send(result);
         }
     }
-
 }
 
 fn bridge_tool_timeout() -> Duration {
@@ -207,7 +208,10 @@ fn is_anki_bridge_tool_name(tool: &str) -> bool {
 }
 
 fn anki_bridge_tools_from_registration(registration: &Value) -> Value {
-    let allowlist = mcp_tool_allowlist();
+    anki_bridge_tools_from_registration_for_surface(registration, &mcp_surface_mode())
+}
+
+fn anki_bridge_tools_from_registration_for_surface(registration: &Value, surface: &str) -> Value {
     let tools = registration
         .pointer("/params/tools")
         .or_else(|| registration.pointer("/params/capabilities/tools"))
@@ -219,10 +223,7 @@ fn anki_bridge_tools_from_registration(registration: &Value) -> Value {
             tool.get("name")
                 .and_then(Value::as_str)
                 .is_some_and(|name| {
-                    is_anki_bridge_tool_name(name)
-                        && allowlist.as_ref().is_none_or(|allowed| {
-                            allowed.iter().any(|allowed_name| allowed_name == name)
-                        })
+                    is_anki_bridge_tool_name(name) && mcp_tool_allowed_by_surface(name, surface)
                 })
         })
         .collect::<Vec<_>>();
@@ -238,6 +239,33 @@ fn mcp_tool_allowlist() -> Option<Vec<String>> {
         .map(ToString::to_string)
         .collect::<Vec<_>>();
     (!tools.is_empty()).then_some(tools)
+}
+
+fn mcp_surface_mode() -> String {
+    match std::env::var(MCP_SURFACE_ENV) {
+        Ok(value) if value.trim().eq_ignore_ascii_case(MINIMAL_MCP_SURFACE) => {
+            MINIMAL_MCP_SURFACE.to_string()
+        }
+        _ => "default".to_string(),
+    }
+}
+
+fn is_minimal_mcp_surface(surface: &str) -> bool {
+    surface.trim().eq_ignore_ascii_case(MINIMAL_MCP_SURFACE)
+}
+
+fn is_minimal_mcp_tool(name: &str) -> bool {
+    matches!(name, "anki.execute" | "anki.runtime.info") || name.starts_with("anki.webengine.")
+}
+
+fn mcp_tool_allowed_by_surface(name: &str, surface: &str) -> bool {
+    let surface_allowed = !is_minimal_mcp_surface(surface) || is_minimal_mcp_tool(name);
+    if !surface_allowed {
+        return false;
+    }
+    mcp_tool_allowlist()
+        .as_ref()
+        .is_none_or(|allowed| allowed.iter().any(|allowed_name| allowed_name == name))
 }
 
 pub fn status_snapshot() -> ServerStatus {
@@ -257,12 +285,7 @@ pub fn status_snapshot() -> ServerStatus {
                 detail: "southbound bridge contract reserved for add-on outbound connection",
             },
         ],
-        endpoints: vec![
-            "/healthz",
-            "/status",
-            "/mcp",
-            "/ws/anki",
-        ],
+        endpoints: vec!["/healthz", "/status", "/mcp", "/ws/anki"],
     }
 }
 
@@ -304,6 +327,10 @@ async fn status_payload() -> Value {
 }
 
 pub fn mcp_tool_inventory() -> Vec<McpTool> {
+    mcp_tool_inventory_for_surface(&mcp_surface_mode())
+}
+
+fn mcp_tool_inventory_for_surface(surface: &str) -> Vec<McpTool> {
     static INVENTORY: OnceLock<Vec<McpTool>> = OnceLock::new();
     let inventory = INVENTORY
         .get_or_init(|| {
@@ -317,13 +344,10 @@ pub fn mcp_tool_inventory() -> Vec<McpTool> {
                 .collect()
         })
         .clone();
-    match mcp_tool_allowlist() {
-        Some(allowlist) => inventory
-            .into_iter()
-            .filter(|tool| allowlist.iter().any(|name| name == &tool.name))
-            .collect(),
-        None => inventory,
-    }
+    inventory
+        .into_iter()
+        .filter(|tool| mcp_tool_allowed_by_surface(&tool.name, surface))
+        .collect()
 }
 
 fn resolve_tool_description_placeholders(mut tool: McpTool) -> McpTool {
@@ -837,12 +861,11 @@ mod tests {
 
     #[test]
     fn mcp_inventory_advertises_expected_namespaces() {
-        let inventory = mcp_tool_inventory();
+        let inventory = mcp_tool_inventory_for_surface("default");
         assert!(!inventory.is_empty());
-        assert!(inventory.iter().all(|tool| {
-            tool.status == "implemented"
-                && tool.name.starts_with("anki.")
-        }));
+        assert!(inventory
+            .iter()
+            .all(|tool| { tool.status == "implemented" && tool.name.starts_with("anki.") }));
         assert!(inventory
             .iter()
             .any(|tool| tool.name == "anki.app.get_state"));
@@ -857,9 +880,15 @@ mod tests {
             .any(|tool| tool.name == "anki.media.add_bytes"));
         assert!(inventory.iter().any(|tool| tool.name == "anki.note.search"));
         assert!(inventory.iter().any(|tool| tool.name == "anki.execute"));
-        assert!(inventory.iter().any(|tool| tool.name == "anki.webengine.take_snapshot"));
-        assert!(inventory.iter().any(|tool| tool.name == "anki.export.notes"));
-        assert!(inventory.iter().any(|tool| tool.name == "anki.backup.create"));
+        assert!(inventory
+            .iter()
+            .any(|tool| tool.name == "anki.webengine.take_snapshot"));
+        assert!(inventory
+            .iter()
+            .any(|tool| tool.name == "anki.export.notes"));
+        assert!(inventory
+            .iter()
+            .any(|tool| tool.name == "anki.backup.create"));
         assert!(inventory.iter().all(|tool| {
             !tool.name.starts_with("anki.bridge.")
                 && !tool.name.contains(".smoke.")
@@ -881,6 +910,55 @@ mod tests {
             !tool.description.contains(ANKI_SDK_ANKI_PATH_PLACEHOLDER)
                 && !tool.description.contains(ANKI_SDK_AQT_PATH_PLACEHOLDER)
         }));
+    }
+
+    #[test]
+    fn minimal_mcp_surface_filters_inventory_to_execute_runtime_and_webengine_tools() {
+        let inventory = mcp_tool_inventory_for_surface(MINIMAL_MCP_SURFACE);
+        let names = inventory
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert!(names.contains("anki.execute"));
+        assert!(names.contains("anki.runtime.info"));
+        assert!(names.contains("anki.webengine.take_snapshot"));
+        assert!(!names.contains("anki.note.search"));
+        assert!(!names.contains("anki.card.preview"));
+        assert!(names.iter().all(|name| {
+            matches!(*name, "anki.execute" | "anki.runtime.info")
+                || name.starts_with("anki.webengine.")
+        }));
+    }
+
+    #[test]
+    fn minimal_mcp_surface_filters_live_bridge_registration() {
+        let tools = anki_bridge_tools_from_registration_for_surface(
+            &json!({
+                "params": {
+                    "tools": [
+                        { "name": "anki.execute" },
+                        { "name": "anki.runtime.info" },
+                        { "name": "anki.webengine.click" },
+                        { "name": "anki.note.search" }
+                    ]
+                }
+            }),
+            MINIMAL_MCP_SURFACE,
+        );
+        let names = tools
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(
+            names,
+            ["anki.execute", "anki.runtime.info", "anki.webengine.click"]
+                .into_iter()
+                .collect()
+        );
     }
 
     #[test]
@@ -910,32 +988,20 @@ mod tests {
     #[test]
     fn bridge_tool_timeout_defaults_to_codex_mcp_duration() {
         std::env::remove_var(MCP_TOOL_TIMEOUT_ENV);
-        assert_eq!(
-            bridge_tool_timeout(),
-            Duration::from_secs(120)
-        );
+        assert_eq!(bridge_tool_timeout(), Duration::from_secs(120));
     }
 
     #[test]
     fn bridge_tool_timeout_uses_one_duration_for_all_tools() {
         std::env::remove_var(MCP_TOOL_TIMEOUT_ENV);
-        assert_eq!(
-            bridge_tool_timeout(),
-            Duration::from_secs(120)
-        );
-        assert_eq!(
-            bridge_tool_timeout(),
-            Duration::from_secs(120)
-        );
+        assert_eq!(bridge_tool_timeout(), Duration::from_secs(120));
+        assert_eq!(bridge_tool_timeout(), Duration::from_secs(120));
     }
 
     #[test]
     fn bridge_tool_timeout_accepts_positive_env_override() {
         std::env::set_var(MCP_TOOL_TIMEOUT_ENV, "5");
-        assert_eq!(
-            bridge_tool_timeout(),
-            Duration::from_secs(5)
-        );
+        assert_eq!(bridge_tool_timeout(), Duration::from_secs(5));
         std::env::remove_var(MCP_TOOL_TIMEOUT_ENV);
     }
 
@@ -1150,9 +1216,7 @@ mod tests {
         let (_requests, session) = BridgeSession::new();
         hub.register_session(session).await;
 
-        let result = hub
-            .call_tool("other.exec.run".to_string(), json!({}))
-            .await;
+        let result = hub.call_tool("other.exec.run".to_string(), json!({})).await;
 
         assert!(result
             .unwrap_err()

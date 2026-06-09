@@ -9,6 +9,9 @@ from typing import Any
 
 COMMAND_NAME_RE: Pattern[str] = compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$")
 CATALOG_VERSION = "v1"
+MCP_SURFACE_ENV = "DECKHAND_MCP_SURFACE"
+MINIMAL_MCP_SURFACE = "minimal"
+MINIMAL_MCP_TOOLS = frozenset({"anki.execute", "anki.runtime.info"})
 
 ANKI_SDK_ANKI_PATH_PLACEHOLDER = "{anki_sdk_anki_path}"
 ANKI_SDK_AQT_PATH_PLACEHOLDER = "{anki_sdk_aqt_path}"
@@ -108,6 +111,14 @@ def _entry(
     )
 
 
+def mcp_surface_mode() -> str:
+    return MINIMAL_MCP_SURFACE if os.environ.get(MCP_SURFACE_ENV, "").strip().lower() == MINIMAL_MCP_SURFACE else "default"
+
+
+def is_minimal_mcp_tool(name: str) -> bool:
+    return name in MINIMAL_MCP_TOOLS or name.startswith("anki.webengine.")
+
+
 NOTE_ID = {"type": "integer", "minimum": 1}
 CARD_ID = {"type": "integer", "minimum": 1}
 QUERY = {"type": "string", "minLength": 1}
@@ -168,6 +179,7 @@ COMMAND_CATALOG: tuple[CommandCatalogEntry, ...] = (
     _entry("anki.export.collection_package", "read", "Export a modern Anki collection package to a required local file path using Anki's native collection export API. Returns artifact metadata only.", status="implemented", input_schema=_schema({"filePath": FILE_PATH, "includeMedia": {"type": "boolean"}, "overwrite": {"type": "boolean"}}, ["filePath"]), evidence="artifact"),
     _entry("anki.backup.create", "mutation", "Create a native Anki no-media collection backup in a required local folder using Anki's backup API. Returns backup path metadata only.", status="implemented", input_schema=_schema({"folderPath": FOLDER_PATH, "force": {"type": "boolean"}, "waitForCompletion": {"type": "boolean"}}, ["folderPath"]), evidence="artifact"),
     _entry("anki.execute", "dev_exec", anki_execute_tool_description(resolve_paths=False), status="implemented", input_schema=_schema({"snippet": {"type": "string", "minLength": 1}}, ["snippet"])),
+    _entry("anki.runtime.info", "read", "Return compact live Anki, Python, Qt, profile, collection, media, add-on, and local SDK path information for writing safe anki.execute snippets.", status="implemented"),
     _entry("anki.webengine.status", "read", "Check Anki's local Qt WebEngine CDP endpoint status.", status="implemented"),
     _entry("anki.webengine.list_pages", "read", "List debuggable Anki Qt WebEngine pages from the local CDP endpoint.", status="implemented"),
     _entry("anki.webengine.take_snapshot", "read", "Take a compact text snapshot of an Anki Qt WebEngine CDP page, with Chrome DevTools-style uid refs for visible controls and content. Always use the latest snapshot before interacting by uid." + WEBENGINE_TARGET_NOTE, status="implemented", input_schema=_schema({**CDP_TARGET, "verbose": {"type": "boolean", "description": "Include more visible non-interactive content in the snapshot tree."}, "filePath": {"type": "string", "minLength": 1, "description": "Write snapshot text to a local file and return metadata instead of attaching the full text."}, "maxElements": {"type": "integer", "minimum": 1}, "maxTreeNodes": {"type": "integer", "minimum": 1}})),

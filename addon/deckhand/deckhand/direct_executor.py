@@ -33,6 +33,9 @@ class DirectExecutor:
             raise ValueError("tool names must use a Deckhand catalog namespace")
         self._handlers[name] = handler
 
+    def unregister(self, name: str) -> None:
+        self._handlers.pop(name, None)
+
     def tools(self) -> list[str]:
         return sorted(self._handlers)
 

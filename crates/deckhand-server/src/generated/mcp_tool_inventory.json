@@ -962,6 +962,25 @@
     {
       "annotations": {
         "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Return compact live Anki, Python, Qt, profile, collection, media, add-on, and local SDK path information for writing safe anki.execute snippets.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "anki.runtime.info",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Info"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false,
         "readOnlyHint": true

@@ -25,6 +25,7 @@ from deckhand import context_tools
 from deckhand import card_tools
 from deckhand import companion
 from deckhand import media_tools
+from deckhand import runtime_tools
 from deckhand import structure_tools
 from deckhand import webengine_tools
 from deckhand.direct_executor import DirectExecutor
@@ -62,6 +63,42 @@ class AddonShellTests(unittest.TestCase):
         self.assertNotIn("anki.dev.set_addon_config", names)
         self.assertNotIn("anki.dev.backup_collection", names)
         self.assertTrue(all(name.startswith("anki.") for name in names))
+
+    def test_minimal_mcp_surface_advertises_only_execute_runtime_and_webengine_tools(self):
+        with mock.patch.dict(os.environ, {"DECKHAND_MCP_SURFACE": "minimal"}):
+            payload = anki_bridge_capability_payload()
+
+        names = {tool["name"] for tool in payload["tools"]}
+        self.assertEqual(payload["surface"], "minimal")
+        self.assertIn("anki.execute", names)
+        self.assertIn("anki.runtime.info", names)
+        self.assertIn("anki.webengine.take_snapshot", names)
+        self.assertIn("anki.webengine.click", names)
+        self.assertNotIn("anki.note.search", names)
+        self.assertNotIn("anki.card.preview", names)
+        self.assertNotIn("anki.deck.list", names)
+        self.assertTrue(all(name in {"anki.execute", "anki.runtime.info"} or name.startswith("anki.webengine.") for name in names))
+
+    def test_runtime_info_reports_compact_environment_context(self):
+        collection = SimpleNamespace(
+            sched=SimpleNamespace(version=3),
+            media=SimpleNamespace(dir=lambda: "/tmp/collection.media"),
+        )
+        mw = SimpleNamespace(
+            state="deckBrowser",
+            col=collection,
+            pm=SimpleNamespace(name=lambda: "Test User", base="/tmp/Anki2"),
+            addonManager=SimpleNamespace(addonsFolder=lambda: "/tmp/addons21"),
+        )
+
+        info = runtime_tools.runtime_info(mw)
+
+        self.assertIn("python", info)
+        self.assertEqual(info["anki"]["state"], "deckBrowser")
+        self.assertEqual(info["anki"]["profile"], "Test User")
+        self.assertEqual(info["anki"]["mediaDir"], "/tmp/collection.media")
+        self.assertIn("sdkPaths", info)
+        self.assertIn("safety", info)
 
     def test_command_catalog_is_valid_and_unique(self):
         errors = validate_command_catalog()
@@ -580,6 +617,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("anki.note.get", implemented)
         self.assertIn("anki.note.update_fields", implemented)
         self.assertIn("anki.note.add_tag", implemented)
+        self.assertIn("anki.runtime.info", implemented)
         self.assertIn("anki.webengine.status", implemented)
         self.assertNotIn("anki.context.get_deck_browser", implemented)
         self.assertNotIn("anki.media.add_url", implemented)
@@ -682,6 +720,14 @@ class AddonShellTests(unittest.TestCase):
 
         self.assertFalse(result.ok)
         self.assertEqual(result.error, "tool_not_found")
+
+    def test_direct_executor_can_unregister_tools(self):
+        executor = DirectExecutor()
+        executor.register("anki.execute", lambda _args: {"ok": True})
+
+        executor.unregister("anki.execute")
+
+        self.assertEqual(executor.tools(), [])
 
     def test_direct_executor_rejects_non_anki_namespace(self):
         executor = DirectExecutor()

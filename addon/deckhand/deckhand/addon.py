@@ -15,11 +15,13 @@ from . import dev_tools
 from . import import_export_tools
 from . import management
 from . import media_tools
+from . import runtime_tools
 from . import structure_tools
 from . import typed_tools
 from . import webengine_tools
 from .bridge import bridge_status
 from .capabilities import anki_bridge_capability_payload, capability_payload
+from .command_catalog import is_minimal_mcp_tool, mcp_surface_mode
 from .direct_executor import DirectExecutor
 from .state_paths import work_root
 
@@ -199,6 +201,10 @@ def _register_default_tools() -> None:
     _executor.register("anki.webengine.list_console_messages", lambda args: webengine_tools.list_console_messages(args))
     _executor.register("anki.webengine.list_network_requests", lambda args: webengine_tools.list_network_requests(args))
     _executor.register("anki.webengine.send_cdp_command", lambda args: webengine_tools.send_cdp_command(args))
+    _executor.register("anki.runtime.info", lambda _args: runtime_tools.runtime_info(_mw()))
+    if mcp_surface_mode() == "minimal":
+        _prune_to_minimal_tools()
+        return
     _executor.register(
         "anki.app.get_state", lambda _args: context_tools.current_context(_mw())
     )
@@ -386,6 +392,13 @@ def _register_default_tools() -> None:
             waitForCompletion=bool(args.get("waitForCompletion", True)),
         ),
     )
+
+
+def _prune_to_minimal_tools() -> None:
+    for name in list(_executor.tools()):
+        if not is_minimal_mcp_tool(name):
+            _executor.unregister(name)
+
 
 def _mw():
     from aqt import mw
