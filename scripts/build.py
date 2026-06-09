@@ -270,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
     inspect = subparsers.add_parser("inspect-mcp", help="Launch MCP Inspector against the live Anki companion MCP endpoint.")
     inspect.add_argument(
         "--url",
-        default=os.environ.get("DECKHAND_MCP_URL", "http://127.0.0.1:18765/mcp"),
+        default=os.environ.get("DECKHAND_MCP_URL", "http://127.0.0.1:28765/mcp"),
         help="Streamable HTTP MCP endpoint to inspect.",
     )
     inspect.add_argument("args", nargs=argparse.REMAINDER, help="Inspector arguments placed before the server command.")

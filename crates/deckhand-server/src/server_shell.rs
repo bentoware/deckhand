@@ -223,7 +223,7 @@ pub(crate) fn bridge_hub() -> BridgeHub {
 }
 
 fn is_anki_bridge_tool_name(tool: &str) -> bool {
-    tool.starts_with("anki.")
+    tool.starts_with("anki_")
 }
 
 fn anki_bridge_tools_from_registration(registration: &Value) -> Value {
@@ -667,7 +667,7 @@ async fn handle_anki_bridge(mut stream: TcpStream, request: &str) -> Result<()> 
             send_ws_text(
                 &mut stream,
                 &json!({
-                    "method": "anki.bridge.reject",
+                    "method": "anki_bridge_reject",
                     "params": { "error": error.to_string() }
                 })
                 .to_string(),
@@ -678,7 +678,7 @@ async fn handle_anki_bridge(mut stream: TcpStream, request: &str) -> Result<()> 
         send_ws_text(
             &mut stream,
             &json!({
-                "method": "anki.bridge.accept",
+                "method": "anki_bridge_accept",
                 "params": { "protocolVersion": "deckhand.ankiBridge.v1" }
             })
             .to_string(),
@@ -718,12 +718,14 @@ async fn handle_anki_bridge(mut stream: TcpStream, request: &str) -> Result<()> 
                     let parsed: Value = serde_json::from_str(&message)?;
                     let id = parsed.get("id").and_then(Value::as_str).unwrap_or("").to_string();
                     let tool = parsed.pointer("/params/tool").and_then(Value::as_str);
-                    let ok = parsed.pointer("/params/result/ok").and_then(Value::as_bool);
+                    let ok = parsed.pointer("/params/ok").and_then(Value::as_bool);
+                    let duration_ms = parsed.pointer("/params/durationMs").and_then(Value::as_i64);
                     log_bridge_event(json!({
                         "event": "server.safe_bridge.tool_result",
                         "id": id,
                         "tool": tool,
                         "ok": ok,
+                        "durationMs": duration_ms,
                     }));
                     bridge_hub().complete_call(id, parsed).await;
                 }
@@ -734,7 +736,7 @@ async fn handle_anki_bridge(mut stream: TcpStream, request: &str) -> Result<()> 
 }
 
 fn validate_anki_bridge_hello(message: &Value) -> Result<()> {
-    if message.get("method").and_then(Value::as_str) != Some("anki.bridge.hello") {
+    if message.get("method").and_then(Value::as_str) != Some("anki_bridge_hello") {
         return Err(anyhow!("invalid_anki_bridge_hello_method"));
     }
     let protocol = message
@@ -760,7 +762,7 @@ fn validate_anki_bridge_hello(message: &Value) -> Result<()> {
     if !tools.iter().any(|tool| {
         tool.get("name")
             .and_then(Value::as_str)
-            .is_some_and(|name| name.starts_with("anki."))
+            .is_some_and(|name| name.starts_with("anki_"))
     }) {
         return Err(anyhow!("missing_anki_tool_registry"));
     }
@@ -903,45 +905,45 @@ mod tests {
         assert!(!inventory.is_empty());
         assert!(inventory
             .iter()
-            .all(|tool| { tool.status == "implemented" && tool.name.starts_with("anki.") }));
+            .all(|tool| { tool.status == "implemented" && tool.name.starts_with("anki_") }));
         assert!(inventory
             .iter()
-            .any(|tool| tool.name == "anki.app.get_state"));
+            .any(|tool| tool.name == "anki_app_get_state"));
         assert!(inventory
             .iter()
-            .all(|tool| tool.name != "anki.context.get_current"));
+            .all(|tool| tool.name != "anki_context_get_current"));
         assert!(!inventory
             .iter()
-            .any(|tool| tool.name == "anki.review.answer_current"));
+            .any(|tool| tool.name == "anki_review_answer_current"));
         assert!(!inventory
             .iter()
-            .any(|tool| tool.name == "anki.media.add_bytes"));
-        assert!(inventory.iter().any(|tool| tool.name == "anki.note.search"));
-        assert!(inventory.iter().any(|tool| tool.name == "anki.execute"));
+            .any(|tool| tool.name == "anki_media_add_bytes"));
+        assert!(inventory.iter().any(|tool| tool.name == "anki_note_search"));
+        assert!(inventory.iter().any(|tool| tool.name == "anki_execute"));
         assert!(inventory
             .iter()
-            .any(|tool| tool.name == "anki.webengine.take_snapshot"));
+            .any(|tool| tool.name == "anki_webengine_take_snapshot"));
         assert!(inventory
             .iter()
-            .any(|tool| tool.name == "anki.export.notes"));
+            .any(|tool| tool.name == "anki_export_notes"));
         assert!(inventory
             .iter()
-            .any(|tool| tool.name == "anki.backup.create"));
+            .any(|tool| tool.name == "anki_backup_create"));
         assert!(inventory.iter().all(|tool| {
-            !tool.name.starts_with("anki.bridge.")
-                && !tool.name.contains(".smoke.")
+            !tool.name.starts_with("anki_bridge_")
+                && !tool.name.starts_with("anki_smoke_")
                 && !tool.name.starts_with("system.")
                 && !tool.name.starts_with("ui.sidebar.")
-                && !tool.name.starts_with("anki.navigate.")
-                && !tool.name.starts_with("anki.template.")
-                && !tool.name.starts_with("anki.import.")
+                && !tool.name.starts_with("anki_navigate_")
+                && !tool.name.starts_with("anki_template_")
+                && !tool.name.starts_with("anki_import_")
                 && !matches!(
                     tool.name.as_str(),
-                    "anki.backup.collection"
-                        | "anki.dev.sql_read"
-                        | "anki.dev.list_hooks"
-                        | "anki.dev.get_addon_config"
-                        | "anki.dev.diagnostics"
+                    "anki_backup_collection"
+                        | "anki_dev_sql_read"
+                        | "anki_dev_list_hooks"
+                        | "anki_dev_get_addon_config"
+                        | "anki_dev_diagnostics"
                 )
         }));
         assert!(inventory.iter().all(|tool| {
@@ -962,7 +964,7 @@ mod tests {
         ));
         std::fs::write(
             &path,
-            r#"{"visibleTools":["anki.execute","anki.runtime.info","anki.webengine.status","anki.unknown"]}"#,
+            r#"{"visibleTools":["anki_execute","anki_runtime_info","anki_webengine_status","anki_unknown"]}"#,
         )
         .unwrap();
 
@@ -974,7 +976,7 @@ mod tests {
 
         assert_eq!(
             names,
-            ["anki.execute", "anki.runtime.info", "anki.webengine.status"]
+            ["anki_execute", "anki_runtime_info", "anki_webengine_status"]
                 .into_iter()
                 .collect()
         );
@@ -993,7 +995,7 @@ mod tests {
         ));
         std::fs::write(
             &path,
-            r#"{"visibleTools":["anki.execute","anki.webengine.status"]}"#,
+            r#"{"visibleTools":["anki_execute","anki_webengine_status"]}"#,
         )
         .unwrap();
 
@@ -1001,9 +1003,9 @@ mod tests {
             &json!({
                 "params": {
                     "tools": [
-                        { "name": "anki.app.get_state" },
-                        { "name": "anki.execute" },
-                        { "name": "anki.webengine.status" },
+                        { "name": "anki_app_get_state" },
+                        { "name": "anki_execute" },
+                        { "name": "anki_webengine_status" },
                         { "name": "other.exec.run" }
                     ]
                 }
@@ -1019,7 +1021,7 @@ mod tests {
 
         assert_eq!(
             names,
-            ["anki.execute", "anki.webengine.status"]
+            ["anki_execute", "anki_webengine_status"]
                 .into_iter()
                 .collect()
         );
@@ -1086,7 +1088,7 @@ mod tests {
     fn websocket_accept_matches_rfc6455_example() {
         let request = concat!(
             "GET /ws/anki HTTP/1.1\r\n",
-            "Host: 127.0.0.1:18765\r\n",
+            "Host: 127.0.0.1:28765\r\n",
             "Upgrade: websocket\r\n",
             "Connection: Upgrade\r\n",
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n",
@@ -1105,14 +1107,14 @@ mod tests {
         std::env::set_var(COMPANION_TOKEN_ENV, "secret-token");
         let missing = concat!(
             "GET /ws/anki HTTP/1.1\r\n",
-            "Host: 127.0.0.1:18765\r\n",
+            "Host: 127.0.0.1:28765\r\n",
             "\r\n"
         );
         assert!(!authorized_internal_request(missing));
 
         let bearer = concat!(
             "GET /ws/anki HTTP/1.1\r\n",
-            "Host: 127.0.0.1:18765\r\n",
+            "Host: 127.0.0.1:28765\r\n",
             "Authorization: Bearer secret-token\r\n",
             "\r\n"
         );
@@ -1120,7 +1122,7 @@ mod tests {
 
         let query = concat!(
             "GET /ws/anki?token=secret-token HTTP/1.1\r\n",
-            "Host: 127.0.0.1:18765\r\n",
+            "Host: 127.0.0.1:28765\r\n",
             "\r\n"
         );
         assert!(authorized_internal_request(query));
@@ -1132,7 +1134,7 @@ mod tests {
         std::env::set_var(COMPANION_TOKEN_ENV, "secret-token");
         let missing = route_request(concat!(
             "GET /api/app/state HTTP/1.1\r\n",
-            "Host: 127.0.0.1:18765\r\n",
+            "Host: 127.0.0.1:28765\r\n",
             "\r\n"
         ))
         .await;
@@ -1140,7 +1142,7 @@ mod tests {
 
         let still_missing_with_token = route_request(concat!(
             "GET /api/app/state HTTP/1.1\r\n",
-            "Host: 127.0.0.1:18765\r\n",
+            "Host: 127.0.0.1:28765\r\n",
             "Authorization: Bearer secret-token\r\n",
             "\r\n"
         ))
@@ -1149,7 +1151,7 @@ mod tests {
 
         let status = route_request(concat!(
             "GET /status HTTP/1.1\r\n",
-            "Host: 127.0.0.1:18765\r\n",
+            "Host: 127.0.0.1:28765\r\n",
             "\r\n"
         ))
         .await;
@@ -1161,21 +1163,21 @@ mod tests {
     fn validates_versioned_anki_bridge_hello_and_pairing_token() {
         std::env::set_var("DECKHAND_ANKI_BRIDGE_TOKEN", "secret");
         let valid = json!({
-            "method": "anki.bridge.hello",
+            "method": "anki_bridge_hello",
             "params": {
                 "protocolVersion": "deckhand.ankiBridge.v1",
                 "pairingToken": "secret",
-                "tools": [{ "name": "anki.app.get_state" }]
+                "tools": [{ "name": "anki_app_get_state" }]
             }
         });
         assert!(validate_anki_bridge_hello(&valid).is_ok());
 
         let invalid = json!({
-            "method": "anki.bridge.hello",
+            "method": "anki_bridge_hello",
             "params": {
                 "protocolVersion": "deckhand.ankiBridge.v1",
                 "pairingToken": "wrong",
-                "tools": [{ "name": "anki.app.get_state" }]
+                "tools": [{ "name": "anki_app_get_state" }]
             }
         });
         assert!(validate_anki_bridge_hello(&invalid)
@@ -1187,18 +1189,34 @@ mod tests {
 
     #[tokio::test]
     async fn api_mcp_tools_prefers_live_anki_bridge_registry() {
+        let state_root = std::env::temp_dir().join(format!(
+            "deckhand-live-bridge-visibility-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&state_root).unwrap();
+        std::fs::write(
+            state_root.join("tool-visibility.json"),
+            r#"{"visibleTools":["anki_execute","anki_webengine_status"]}"#,
+        )
+        .unwrap();
+        std::env::set_var(STATE_ROOT_ENV, &state_root);
+
         let hub = BridgeHub::default();
         let (_requests, session) = BridgeSession::new();
         hub.register_session_with_registration(
             session,
             Some(json!({
-                "method": "anki.bridge.hello",
+                "method": "anki_bridge_hello",
                 "params": {
                     "protocolVersion": "deckhand.ankiBridge.v1",
                     "tools": [
-                        { "name": "anki.app.get_state", "risk": "read" },
-                        { "name": "anki.execute", "risk": "dev_exec" },
-                        { "name": "anki.webengine.status", "risk": "read" },
+                        { "name": "anki_app_get_state", "risk": "read" },
+                        { "name": "anki_execute", "risk": "dev_exec" },
+                        { "name": "anki_webengine_status", "risk": "read" },
                         { "name": "other.exec.run", "risk": "system_exec" },
                         { "name": "other.exec.run", "risk": "system_exec" },
                         { "name": "other.sidebar.show_status", "risk": "ui" }
@@ -1212,13 +1230,16 @@ mod tests {
         assert_eq!(payload["source"], "anki_bridge");
         assert_eq!(payload["protocol"], "deckhand.ankiBridge.v1");
         assert_eq!(payload["tools"].as_array().unwrap().len(), 2);
-        assert_eq!(payload["tools"][0]["name"], "anki.execute");
-        assert_eq!(payload["tools"][1]["name"], "anki.webengine.status");
+        assert_eq!(payload["tools"][0]["name"], "anki_execute");
+        assert_eq!(payload["tools"][1]["name"], "anki_webengine_status");
 
         let mcp_payload = hub.mcp_tools_list_payload().await;
         assert_eq!(mcp_payload["tools"].as_array().unwrap().len(), 2);
-        assert_eq!(mcp_payload["tools"][0]["name"], "anki.execute");
-        assert_eq!(mcp_payload["tools"][1]["name"], "anki.webengine.status");
+        assert_eq!(mcp_payload["tools"][0]["name"], "anki_execute");
+        assert_eq!(mcp_payload["tools"][1]["name"], "anki_webengine_status");
+
+        std::env::remove_var(STATE_ROOT_ENV);
+        let _ = std::fs::remove_dir_all(state_root);
     }
 
     #[test]
@@ -1270,7 +1291,7 @@ mod tests {
         let hub = BridgeHub::default();
 
         let result = hub
-            .call_tool("anki.context.get_profile".to_string(), json!({}))
+            .call_tool("anki_context_get_profile".to_string(), json!({}))
             .await;
 
         assert!(result.is_err());
@@ -1298,14 +1319,14 @@ mod tests {
             session,
             Some(json!({
                 "params": {
-                    "tools": [{ "name": "anki.execute" }]
+                    "tools": [{ "name": "anki_execute" }]
                 }
             })),
         )
         .await;
 
         let result = hub
-            .call_tool("anki.note.search".to_string(), json!({}))
+            .call_tool("anki_note_search".to_string(), json!({}))
             .await;
 
         assert!(result
@@ -1323,13 +1344,13 @@ mod tests {
         let pending = tokio::spawn({
             let hub = hub.clone();
             async move {
-                hub.call_tool("anki.context.get_profile".to_string(), json!({}))
+                hub.call_tool("anki_context_get_profile".to_string(), json!({}))
                     .await
                     .unwrap()
             }
         });
         let request = requests.recv().await.unwrap();
-        assert_eq!(request.tool, "anki.context.get_profile");
+        assert_eq!(request.tool, "anki_context_get_profile");
 
         hub.complete_call(
             request.id.clone(),
@@ -1337,8 +1358,11 @@ mod tests {
                 "id": request.id,
                 "method": "tool.result",
                 "params": {
-                    "tool": "anki.context.get_profile",
-                    "result": { "ok": true, "result": { "profile": "Test User" } }
+                    "tool": "anki_context_get_profile",
+                    "ok": true,
+                    "result": { "profile": "Test User" },
+                    "error": null,
+                    "durationMs": 7
                 }
             }),
         )
@@ -1346,8 +1370,12 @@ mod tests {
 
         let result = pending.await.unwrap();
         assert_eq!(
-            result.pointer("/params/result/ok").and_then(Value::as_bool),
+            result.pointer("/params/ok").and_then(Value::as_bool),
             Some(true)
+        );
+        assert_eq!(
+            result.pointer("/params/durationMs").and_then(Value::as_i64),
+            Some(7)
         );
     }
 
@@ -1361,7 +1389,7 @@ mod tests {
             let hub = hub.clone();
             async move {
                 hub.call_tool(
-                    "anki.note.update_fields".to_string(),
+                    "anki_note_update_fields".to_string(),
                     json!({
                         "note_id": 123,
                         "fields": { "Back": "direct over server route" }
@@ -1372,7 +1400,7 @@ mod tests {
             }
         });
         let request = requests.recv().await.unwrap();
-        assert_eq!(request.tool, "anki.note.update_fields");
+        assert_eq!(request.tool, "anki_note_update_fields");
         assert_eq!(
             request.arguments.get("note_id").and_then(Value::as_i64),
             Some(123)
@@ -1384,8 +1412,11 @@ mod tests {
                 "id": request.id,
                 "method": "tool.result",
                 "params": {
-                    "tool": "anki.note.update_fields",
-                    "result": { "ok": true, "result": { "noteId": 123, "updatedFields": ["Back"] } }
+                    "tool": "anki_note_update_fields",
+                    "ok": true,
+                    "result": { "noteId": 123, "updatedFields": ["Back"] },
+                    "error": null,
+                    "durationMs": 5
                 }
             }),
         )
@@ -1393,7 +1424,7 @@ mod tests {
 
         let result = pending.await.unwrap();
         assert_eq!(
-            result.pointer("/params/result/ok").and_then(Value::as_bool),
+            result.pointer("/params/ok").and_then(Value::as_bool),
             Some(true)
         );
     }

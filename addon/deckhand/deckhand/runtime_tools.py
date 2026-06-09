@@ -47,12 +47,6 @@ def runtime_info(mw: Any) -> dict[str, Any]:
                 "aqt": Path(aqt_path).exists(),
             },
         },
-        "safety": [
-            "Prefer Anki APIs via mw/aqt inside anki.execute.",
-            "Do not edit the collection SQLite database or media folder directly for mutations.",
-            "Run UI-affecting work on Anki's main Qt thread.",
-            "Use WebEngine tools for rendered card/browser UI inspection.",
-        ],
     }
 
 

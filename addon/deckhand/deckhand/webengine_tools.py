@@ -8,7 +8,6 @@ from pathlib import Path
 import socket
 import struct
 import time
-from time import perf_counter
 from typing import Any, NamedTuple
 from urllib.parse import urlparse
 from urllib.request import urlopen
@@ -50,39 +49,33 @@ class TargetResolution(NamedTuple):
 
 
 def status(host: str | None = None, port: int | None = None, timeout: float = 2.0) -> dict[str, object]:
-    started = perf_counter()
     base = _base_url(host, port)
     try:
         version = _get_json(f"{base}/json/version", timeout=timeout)
     except Exception as exc:  # noqa: BLE001 - tool result should explain local runtime state
         return {
-            "ok": False,
+            "available": False,
             "host": _host(host),
             "port": _port(port),
             "url": f"{base}/json/version",
             "error": str(exc),
-            "durationMs": _elapsed_ms(started),
         }
     return {
-        "ok": True,
+        "available": True,
         "host": _host(host),
         "port": _port(port),
         "url": f"{base}/json/version",
         "version": sanitize_result(version),
-        "durationMs": _elapsed_ms(started),
     }
 
 
 def list_pages(host: str | None = None, port: int | None = None, timeout: float = 2.0) -> dict[str, object]:
-    started = perf_counter()
     pages = _list_pages(host, port, timeout)
     return {
-        "ok": True,
         "host": _host(host),
         "port": _port(port),
         "pages": [_page_summary(page) for page in pages],
         "count": len(pages),
-        "durationMs": _elapsed_ms(started),
     }
 
 
@@ -99,7 +92,6 @@ def send_cdp_command(args: dict[str, Any]) -> dict[str, object]:
         "paramsPreview": sanitize_result(params),
         "targetPreview": _target_preview(args),
     }
-    started = perf_counter()
     target = _resolve_target(args)
     response = _cdp_request(target.websocket_url, method, params, timeout=float(args.get("timeoutSeconds", 5.0)))
     return {
@@ -107,12 +99,10 @@ def send_cdp_command(args: dict[str, Any]) -> dict[str, object]:
         "webSocketDebuggerUrl": target.websocket_url,
         "target": target.target,
         "response": sanitize_result(response),
-        "durationMs": _elapsed_ms(started),
     }
 
 
 def take_snapshot(args: dict[str, Any]) -> dict[str, object]:
-    started = perf_counter()
     max_elements = _positive_int(args.get("maxElements"), MAX_SNAPSHOT_ELEMENTS)
     max_tree_nodes = _positive_int(args.get("maxTreeNodes"), MAX_SNAPSHOT_TREE_NODES)
     verbose = bool(args.get("verbose", False))
@@ -135,25 +125,20 @@ def take_snapshot(args: dict[str, Any]) -> dict[str, object]:
         text = snapshot.get("text", "") if isinstance(snapshot, dict) else ""
         path.write_text(str(text), encoding="utf-8")
         return {
-            "ok": True,
             "webSocketDebuggerUrl": target.websocket_url,
             "target": target.target,
             "snapshotId": snapshot.get("snapshotId") if isinstance(snapshot, dict) else None,
             "path": str(path),
             "bytes": path.stat().st_size,
-            "durationMs": _elapsed_ms(started),
         }
     return {
-        "ok": True,
         "webSocketDebuggerUrl": target.websocket_url,
         "target": target.target,
         "snapshot": snapshot,
-        "durationMs": _elapsed_ms(started),
     }
 
 
 def take_screenshot(args: dict[str, Any]) -> dict[str, object]:
-    started = perf_counter()
     file_path = str(args.get("filePath", "")).strip()
     if not file_path:
         raise WebEngineToolError("filePath_required")
@@ -181,14 +166,12 @@ def take_screenshot(args: dict[str, Any]) -> dict[str, object]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(raw)
     return {
-        "ok": True,
         "webSocketDebuggerUrl": target.websocket_url,
         "target": target.target,
         "path": str(path),
         "mimeType": f"image/{fmt}",
         "bytes": len(raw),
         "format": fmt,
-        "durationMs": _elapsed_ms(started),
     }
 
 
@@ -196,7 +179,6 @@ def evaluate_script(args: dict[str, Any]) -> dict[str, object]:
     script = str(args.get("script", "")).strip()
     if not script:
         raise WebEngineToolError("script_required")
-    started = perf_counter()
     target = _resolve_target(args)
     response = _cdp_request(
         target.websocket_url,
@@ -209,17 +191,14 @@ def evaluate_script(args: dict[str, Any]) -> dict[str, object]:
         timeout=float(args.get("timeoutSeconds", 5.0)),
     )
     return {
-        "ok": True,
         "webSocketDebuggerUrl": target.websocket_url,
         "target": target.target,
         "response": sanitize_result(response),
         "value": sanitize_result(_runtime_value(response)),
-        "durationMs": _elapsed_ms(started),
     }
 
 
 def click(args: dict[str, Any]) -> dict[str, object]:
-    started = perf_counter()
     x = args.get("x")
     y = args.get("y")
     target = _resolve_target(args)
@@ -256,7 +235,6 @@ def click(args: dict[str, Any]) -> dict[str, object]:
             timeout=timeout,
         )
     return {
-        "ok": True,
         "webSocketDebuggerUrl": websocket_url,
         "target": target.target,
         "x": float(x),
@@ -264,7 +242,6 @@ def click(args: dict[str, Any]) -> dict[str, object]:
         "button": button,
         "clickCount": click_count,
         "uid": str(args.get("uid", "")).strip() or None,
-        "durationMs": _elapsed_ms(started),
     }
 
 
@@ -272,7 +249,6 @@ def type_text(args: dict[str, Any]) -> dict[str, object]:
     text = str(args.get("text", ""))
     if text == "":
         raise WebEngineToolError("text_required")
-    started = perf_counter()
     target = _resolve_target(args)
     websocket_url = target.websocket_url
     timeout = float(args.get("timeoutSeconds", 5.0))
@@ -294,13 +270,11 @@ def type_text(args: dict[str, Any]) -> dict[str, object]:
             raise WebEngineToolError(str(value.get("error", "selector_not_found")) if isinstance(value, dict) else "selector_not_found")
     _cdp_request(websocket_url, "Input.insertText", {"text": text}, timeout=timeout)
     return {
-        "ok": True,
         "webSocketDebuggerUrl": websocket_url,
         "target": target.target,
         "textLength": len(text),
         "uid": uid or None,
         "selector": selector or None,
-        "durationMs": _elapsed_ms(started),
     }
 
 
@@ -308,7 +282,6 @@ def press_key(args: dict[str, Any]) -> dict[str, object]:
     raw_key = str(args.get("key", "")).strip()
     if not raw_key:
         raise WebEngineToolError("key_required")
-    started = perf_counter()
     key, code, windows_key_code = _key_definition(raw_key, args)
     params = {
         "key": key,
@@ -323,17 +296,14 @@ def press_key(args: dict[str, Any]) -> dict[str, object]:
     _cdp_request(websocket_url, "Input.dispatchKeyEvent", {"type": "keyDown", **params}, timeout=timeout)
     _cdp_request(websocket_url, "Input.dispatchKeyEvent", {"type": "keyUp", **params}, timeout=timeout)
     return {
-        "ok": True,
         "webSocketDebuggerUrl": websocket_url,
         "target": target.target,
         "key": key,
         "code": code,
-        "durationMs": _elapsed_ms(started),
     }
 
 
 def wait_for(args: dict[str, Any]) -> dict[str, object]:
-    started = perf_counter()
     timeout = float(args.get("timeoutSeconds", 5.0))
     poll_interval = max(0.05, float(args.get("pollIntervalSeconds", 0.1)))
     expression = _wait_expression(args)
@@ -351,69 +321,14 @@ def wait_for(args: dict[str, Any]) -> dict[str, object]:
         last_value = _runtime_value(response)
         if _truthy_wait_value(last_value):
             return {
-                "ok": True,
                 "webSocketDebuggerUrl": websocket_url,
                 "target": target.target,
                 "matched": True,
                 "value": sanitize_result(last_value),
-                "durationMs": _elapsed_ms(started),
             }
         if time.monotonic() >= deadline:
             raise WebEngineToolError("wait_for_timeout")
         time.sleep(min(poll_interval, max(0.0, deadline - time.monotonic())))
-
-
-def list_console_messages(args: dict[str, Any]) -> dict[str, object]:
-    started = perf_counter()
-    target = _resolve_target(args)
-    websocket_url = target.websocket_url
-    listen_seconds = max(0.0, float(args.get("listenSeconds", 0.75)))
-    limit = _positive_int(args.get("limit"), 50)
-    timeout = float(args.get("timeoutSeconds", max(2.0, listen_seconds + 1.0)))
-    with CdpSession(websocket_url, timeout=timeout) as session:
-        session.send("Runtime.enable", {})
-        session.send("Log.enable", {})
-        events = session.collect(
-            listen_seconds,
-            limit=limit,
-            methods={"Runtime.consoleAPICalled", "Runtime.exceptionThrown", "Log.entryAdded"},
-        )
-    return {
-        "ok": True,
-        "webSocketDebuggerUrl": websocket_url,
-        "target": target.target,
-        "events": sanitize_result(events),
-        "count": len(events),
-        "listenSeconds": listen_seconds,
-        "durationMs": _elapsed_ms(started),
-    }
-
-
-def list_network_requests(args: dict[str, Any]) -> dict[str, object]:
-    started = perf_counter()
-    target = _resolve_target(args)
-    websocket_url = target.websocket_url
-    listen_seconds = max(0.0, float(args.get("listenSeconds", 1.0)))
-    limit = _positive_int(args.get("limit"), 100)
-    timeout = float(args.get("timeoutSeconds", max(2.0, listen_seconds + 1.0)))
-    network_methods = {
-        "Network.requestWillBeSent",
-        "Network.responseReceived",
-        "Network.loadingFailed",
-        "Network.loadingFinished",
-    }
-    with CdpSession(websocket_url, timeout=timeout) as session:
-        session.send("Network.enable", {})
-        events = session.collect(listen_seconds, limit=limit, methods=network_methods)
-    return {
-        "ok": True,
-        "webSocketDebuggerUrl": websocket_url,
-        "target": target.target,
-        "events": sanitize_result(events),
-        "count": len(events),
-        "listenSeconds": listen_seconds,
-        "durationMs": _elapsed_ms(started),
-    }
 
 
 def _runtime_value(response: dict[str, Any]) -> Any:
@@ -779,7 +694,6 @@ class CdpSession:
         self._timeout = timeout
         self._sock: socket.socket | None = None
         self._next_id = 1
-        self._events: list[dict[str, Any]] = []
 
     def __enter__(self) -> "CdpSession":
         parsed = urlparse(self._websocket_url)
@@ -810,28 +724,6 @@ class CdpSession:
             data = json.loads(message)
             if data.get("id") == request_id:
                 return data
-            if isinstance(data, dict) and data.get("method"):
-                self._events.append(data)
-
-    def collect(self, seconds: float, *, limit: int, methods: set[str] | None = None) -> list[dict[str, Any]]:
-        sock = self._require_sock()
-        events = list(self._events)
-        self._events.clear()
-        deadline = time.monotonic() + seconds
-        previous_timeout = sock.gettimeout()
-        try:
-            while len(events) < limit and time.monotonic() < deadline:
-                sock.settimeout(max(0.01, deadline - time.monotonic()))
-                try:
-                    data = json.loads(_ws_recv_text(sock))
-                except socket.timeout:
-                    break
-                if isinstance(data, dict) and data.get("method"):
-                    if methods is None or data.get("method") in methods:
-                        events.append(data)
-        finally:
-            sock.settimeout(previous_timeout)
-        return events[:limit]
 
     def _require_sock(self) -> socket.socket:
         if self._sock is None:
@@ -962,7 +854,3 @@ def _validate_ws_url(url: str) -> str:
 def _validate_host(host: str | None) -> None:
     if not host or host not in ALLOWED_HOSTS:
         raise WebEngineToolError("cdp_host_must_be_localhost")
-
-
-def _elapsed_ms(started: float) -> int:
-    return max(0, int((perf_counter() - started) * 1000))

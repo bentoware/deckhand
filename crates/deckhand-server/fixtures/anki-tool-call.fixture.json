@@ -4,7 +4,7 @@
   "method": "tool.call",
   "params": {
     "callId": "call_001",
-    "tool": "anki.app.get_state",
+    "tool": "anki_app_get_state",
     "arguments": {},
     "mode": "safe_bridge"
   }

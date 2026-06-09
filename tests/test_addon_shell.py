@@ -49,7 +49,7 @@ class AddonShellTests(unittest.TestCase):
     def test_capability_payload_marks_internal_bridge_path(self):
         payload = capability_payload()
         self.assertEqual(payload["paths"], ["safe_bridge"])
-        self.assertIn("anki.execute", {tool["name"] for tool in payload["tools"]})
+        self.assertIn("anki_execute", {tool["name"] for tool in payload["tools"]})
         self.assertIn("catalog", payload)
         self.assertEqual(
             len(payload["tools"]),
@@ -62,29 +62,29 @@ class AddonShellTests(unittest.TestCase):
         names = {tool["name"] for tool in payload["tools"]}
 
         self.assertEqual(payload["paths"], ["safe_bridge"])
-        self.assertIn("anki.app.get_state", names)
-        self.assertNotIn("anki.context.get_current", names)
-        self.assertIn("anki.note.search", names)
-        self.assertIn("anki.execute", names)
-        self.assertNotIn("anki.review.answer_current", names)
-        self.assertNotIn("anki.bridge.registry", names)
-        self.assertNotIn("anki.bridge.call", names)
-        self.assertNotIn("anki.bridge.server_call", names)
-        self.assertNotIn("anki.smoke.safe_bridge", names)
+        self.assertIn("anki_app_get_state", names)
+        self.assertNotIn("anki_context_get_current", names)
+        self.assertIn("anki_note_search", names)
+        self.assertIn("anki_execute", names)
+        self.assertNotIn("anki_review_answer_current", names)
+        self.assertNotIn("anki_bridge_registry", names)
+        self.assertNotIn("anki_bridge_call", names)
+        self.assertNotIn("anki_bridge_server_call", names)
+        self.assertNotIn("anki_smoke_safe_bridge", names)
         self.assertNotIn("codex.realtime.start_call", names)
         self.assertNotIn("system.exec.run", names)
         self.assertTrue(all(".smoke." not in name for name in names))
-        self.assertNotIn("anki.dev.set_addon_config", names)
-        self.assertNotIn("anki.dev.backup_collection", names)
-        self.assertTrue(all(name.startswith("anki.") for name in names))
+        self.assertNotIn("anki_dev_set_addon_config", names)
+        self.assertNotIn("anki_dev_backup_collection", names)
+        self.assertTrue(all(name.startswith("anki_") for name in names))
 
     def test_tool_visibility_defaults_to_all_tools(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "tool-visibility.json"
             with mock.patch.object(tool_visibility, "VISIBILITY_PATH", path):
-                visible = tool_visibility.visible_tool_names(["anki.deck.list", "anki.execute"])
+                visible = tool_visibility.visible_tool_names(["anki_deck_list", "anki_execute"])
 
-        self.assertEqual(visible, ["anki.deck.list", "anki.execute"])
+        self.assertEqual(visible, ["anki_deck_list", "anki_execute"])
 
     def test_tool_visibility_template_filters_capability_payload(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -94,14 +94,14 @@ class AddonShellTests(unittest.TestCase):
                 payload = anki_bridge_capability_payload()
 
         names = {tool["name"] for tool in payload["tools"]}
-        self.assertIn("anki.execute", names)
-        self.assertIn("anki.runtime.info", names)
-        self.assertIn("anki.webengine.take_snapshot", names)
-        self.assertIn("anki.webengine.click", names)
-        self.assertNotIn("anki.note.search", names)
-        self.assertNotIn("anki.card.preview", names)
-        self.assertNotIn("anki.deck.list", names)
-        self.assertTrue(all(name in {"anki.execute", "anki.runtime.info"} or name.startswith("anki.webengine.") for name in names))
+        self.assertIn("anki_execute", names)
+        self.assertIn("anki_runtime_info", names)
+        self.assertIn("anki_webengine_take_snapshot", names)
+        self.assertIn("anki_webengine_click", names)
+        self.assertNotIn("anki_note_search", names)
+        self.assertNotIn("anki_card_preview", names)
+        self.assertNotIn("anki_deck_list", names)
+        self.assertTrue(all(name in {"anki_execute", "anki_runtime_info"} or name.startswith("anki_webengine_") for name in names))
 
     def test_runtime_info_reports_compact_environment_context(self):
         collection = SimpleNamespace(
@@ -122,7 +122,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertEqual(info["anki"]["profile"], "Test User")
         self.assertEqual(info["anki"]["mediaDir"], "/tmp/collection.media")
         self.assertIn("sdkPaths", info)
-        self.assertIn("safety", info)
+        self.assertNotIn("safety", info)
 
     def test_command_catalog_is_valid_and_unique(self):
         errors = validate_command_catalog()
@@ -131,7 +131,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(len({entry.name for entry in catalog}), len(catalog))
         self.assertGreater(len(catalog), 0)
-        self.assertTrue(all(entry.name.startswith("anki.") for entry in catalog))
+        self.assertTrue(all(entry.name.startswith("anki_") for entry in catalog))
         self.assertTrue(all(".dev." not in entry.name for entry in catalog))
 
     def test_addon_menu_exposes_management_and_developer_panel(self):
@@ -252,12 +252,12 @@ class AddonShellTests(unittest.TestCase):
             "ownedByAnki": True,
             "pid": 123,
             "binary": "/tmp/deckhand-server",
-            "url": "http://127.0.0.1:18765",
-            "bridgeUrl": "ws://127.0.0.1:18765/ws/anki",
+            "url": "http://127.0.0.1:28765",
+            "bridgeUrl": "ws://127.0.0.1:28765/ws/anki",
             "health": {"healthy": True},
         }
         try:
-            snapshot = management.management_snapshot(["anki.execute"])
+            snapshot = management.management_snapshot(["anki_execute"])
         finally:
             management.companion.runtime_status = original_runtime_status
 
@@ -265,7 +265,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertEqual(snapshot["companion"]["runtime"]["pid"], 123)
         self.assertNotIn("features", snapshot)
         self.assertIn("ankiBridge", snapshot["companion"])
-        self.assertEqual(snapshot["ankiTools"], ["anki.execute"])
+        self.assertEqual(snapshot["ankiTools"], ["anki_execute"])
         self.assertEqual(snapshot["toolCount"], 1)
 
     def test_companion_uses_bundled_server_path_for_platform(self):
@@ -477,22 +477,24 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("QPlainTextEdit", source)
 
     def test_tool_view_models_join_live_tools_with_catalog_metadata(self):
-        models = management.tool_view_models(["anki.execute", "anki.webengine.status", "anki.removed.prototype"])
+        models = management.tool_view_models(["anki_execute", "anki_webengine_status", "anki_removed_prototype"])
         by_name = {model["name"]: model for model in models}
 
-        self.assertEqual([model["name"] for model in models], ["anki.execute", "anki.removed.prototype", "anki.webengine.status"])
-        self.assertEqual(by_name["anki.execute"]["namespace"], "anki.execute")
-        self.assertIn("Execute Python inside Anki", by_name["anki.execute"]["description"])
-        self.assertTrue(by_name["anki.execute"]["annotations"]["destructiveHint"])
-        self.assertTrue(by_name["anki.webengine.status"]["annotations"]["readOnlyHint"])
-        self.assertTrue(by_name["anki.webengine.status"]["annotations"]["idempotentHint"])
-        self.assertFalse(by_name["anki.removed.prototype"]["known"])
-        self.assertEqual(by_name["anki.removed.prototype"]["description"], "No catalog metadata")
+        self.assertEqual([model["name"] for model in models], ["anki_execute", "anki_removed_prototype", "anki_webengine_status"])
+        self.assertEqual(by_name["anki_execute"]["namespace"], "anki_execute")
+        self.assertIn("Execute Python inside Anki", by_name["anki_execute"]["description"])
+        self.assertIn("large fields", by_name["anki_execute"]["description"])
+        self.assertIn("caller-chosen local path", by_name["anki_execute"]["description"])
+        self.assertTrue(by_name["anki_execute"]["annotations"]["destructiveHint"])
+        self.assertTrue(by_name["anki_webengine_status"]["annotations"]["readOnlyHint"])
+        self.assertTrue(by_name["anki_webengine_status"]["annotations"]["idempotentHint"])
+        self.assertFalse(by_name["anki_removed_prototype"]["known"])
+        self.assertEqual(by_name["anki_removed_prototype"]["description"], "No catalog metadata")
 
     def test_mcp_install_instructions_are_standard_http_only(self):
-        instructions = management.mcp_install_instructions("http://127.0.0.1:18765/mcp")
+        instructions = management.mcp_install_instructions("http://127.0.0.1:28765/mcp")
 
-        self.assertIn("http://127.0.0.1:18765/mcp", instructions)
+        self.assertIn("http://127.0.0.1:28765/mcp", instructions)
         self.assertIn("Streamable HTTP", instructions)
         self.assertIn("standard", instructions)
         self.assertNotIn("Claude Desktop", instructions)
@@ -522,7 +524,7 @@ class AddonShellTests(unittest.TestCase):
         try:
             bridge_transport.send_text(
                 left,
-                '{"id":"call-1","method":"tool.call","params":{"tool":"anki.note.create","arguments":{"deck":"Default","model":"Basic"}}}',
+                '{"id":"call-1","method":"tool.call","params":{"tool":"anki_note_create","arguments":{"deck":"Default","model":"Basic"}}}',
             )
             client._handle_message(right, bridge_transport.recv_text(right))
             response = json.loads(bridge_transport.recv_text(left))
@@ -530,8 +532,10 @@ class AddonShellTests(unittest.TestCase):
             left.close()
             right.close()
 
-        self.assertEqual(calls, [("anki.note.create", {"deck": "Default", "model": "Basic"})])
-        self.assertEqual(response["params"]["result"]["result"]["thread"], "main")
+        self.assertEqual(calls, [("anki_note_create", {"deck": "Default", "model": "Basic"})])
+        self.assertEqual(response["params"]["result"]["thread"], "main")
+        self.assertTrue(response["params"]["ok"])
+        self.assertIn("durationMs", response["params"])
 
     def test_bridge_hello_payload_advertises_versioned_anki_tools(self):
         payload = bridge_transport.bridge_hello_payload(
@@ -542,8 +546,8 @@ class AddonShellTests(unittest.TestCase):
                 "collectionHash": "collection-1",
                 "capabilities": {"paths": ["safe_bridge"]},
                 "tools": [
-                    {"name": "anki.app.get_state", "risk": "read"},
-                    {"name": "anki.execute", "risk": "dev_exec"},
+                    {"name": "anki_app_get_state", "risk": "read"},
+                    {"name": "anki_execute", "risk": "dev_exec"},
                     {"name": "other.sidebar.show_status", "risk": "ui"},
                     {"name": "other.exec.run", "risk": "system_exec"},
                 ],
@@ -551,20 +555,20 @@ class AddonShellTests(unittest.TestCase):
             {"DECKHAND_ANKI_BRIDGE_TOKEN": "pairing-token"},
         )
 
-        self.assertEqual(payload["method"], "anki.bridge.hello")
+        self.assertEqual(payload["method"], "anki_bridge_hello")
         self.assertEqual(payload["params"]["protocolVersion"], "deckhand.ankiBridge.v1")
         self.assertNotIn("protocol", payload["params"])
         self.assertEqual(payload["params"]["pairingToken"], "pairing-token")
         self.assertEqual(len(payload["params"]["tools"]), 2)
-        self.assertEqual(payload["params"]["tools"][0]["name"], "anki.app.get_state")
-        self.assertEqual(payload["params"]["tools"][1]["name"], "anki.execute")
+        self.assertEqual(payload["params"]["tools"][0]["name"], "anki_app_get_state")
+        self.assertEqual(payload["params"]["tools"][1]["name"], "anki_execute")
         self.assertEqual(payload["params"]["capabilities"]["paths"], ["safe_bridge"])
         self.assertEqual(payload["params"]["profileHash"], "profile-1")
         self.assertEqual(payload["params"]["collectionHash"], "collection-1")
 
     def test_bridge_hello_uses_companion_token_as_pairing_fallback(self):
         payload = bridge_transport.bridge_hello_payload(
-            {"tools": [{"name": "anki.app.get_state"}]},
+            {"tools": [{"name": "anki_app_get_state"}]},
             {"DECKHAND_COMPANION_TOKEN": "companion-token"},
         )
 
@@ -572,21 +576,21 @@ class AddonShellTests(unittest.TestCase):
 
     def test_bridge_url_includes_companion_token_query(self):
         self.assertEqual(
-            bridge_transport.with_companion_token("ws://127.0.0.1:18765/ws/anki", "token-1"),
-            "ws://127.0.0.1:18765/ws/anki?token=token-1",
+            bridge_transport.with_companion_token("ws://127.0.0.1:28765/ws/anki", "token-1"),
+            "ws://127.0.0.1:28765/ws/anki?token=token-1",
         )
         self.assertEqual(
-            bridge_transport.with_companion_token("ws://127.0.0.1:18765/ws/anki?mode=test", "token-1"),
-            "ws://127.0.0.1:18765/ws/anki?mode=test&token=token-1",
+            bridge_transport.with_companion_token("ws://127.0.0.1:28765/ws/anki?mode=test", "token-1"),
+            "ws://127.0.0.1:28765/ws/anki?mode=test&token=token-1",
         )
 
     def test_safe_bridge_defaults_to_desktop_sidecar(self):
-        self.assertEqual(bridge_transport.DEFAULT_URL, "ws://127.0.0.1:18765/ws/anki")
+        self.assertEqual(bridge_transport.DEFAULT_URL, "ws://127.0.0.1:28765/ws/anki")
         client = bridge_transport.SafeBridgeClient(
             executor=DirectExecutor(),
             registry_provider=lambda: {},
         )
-        self.assertEqual(client._url, "ws://127.0.0.1:18765/ws/anki")
+        self.assertEqual(client._url, "ws://127.0.0.1:28765/ws/anki")
 
     def test_safe_bridge_url_env_override_is_still_supported(self):
         original = os.environ.get("DECKHAND_SAFE_BRIDGE_URL")
@@ -608,8 +612,8 @@ class AddonShellTests(unittest.TestCase):
         source = (ADDON / "deckhand" / "bridge_transport.py").read_text(encoding="utf-8")
 
         self.assertIn("send_text(sock, json.dumps(bridge_hello_payload(self._registry_provider())))", source)
-        self.assertIn('"anki.bridge.hello"', source)
-        self.assertNotIn('"anki.bridge.register"', source)
+        self.assertIn('"anki_bridge_hello"', source)
+        self.assertNotIn('"anki_bridge_register"', source)
 
     def test_safe_bridge_start_uses_retry_loop(self):
         source = (ADDON / "deckhand" / "bridge_transport.py").read_text(encoding="utf-8")
@@ -633,109 +637,116 @@ class AddonShellTests(unittest.TestCase):
             self.assertTrue(entry.paths, entry.name)
             self.assertTrue(entry.description, entry.name)
 
+        entries = {entry.name: entry for entry in command_catalog()}
+        execute_description = entries["anki_execute"].description
+        runtime_description = entries["anki_runtime_info"].description
+        self.assertIn("Prefer Anki APIs via mw/aqt", execute_description)
+        self.assertIn("do not edit the collection SQLite database or media folder directly", execute_description)
+        self.assertIn("main Qt thread", execute_description)
+        self.assertIn("WebEngine tools", execute_description)
+        self.assertNotIn("safe anki_execute snippets", runtime_description)
+
     def test_catalog_tracks_current_implemented_tools(self):
         implemented = {
             entry.name for entry in command_catalog() if entry.status == "implemented"
         }
 
-        self.assertIn("anki.app.get_state", implemented)
-        self.assertNotIn("anki.context.get_current", implemented)
-        self.assertIn("anki.note.search", implemented)
-        self.assertIn("anki.note.get", implemented)
-        self.assertIn("anki.note.update_fields", implemented)
-        self.assertIn("anki.note.add_tag", implemented)
-        self.assertIn("anki.runtime.info", implemented)
-        self.assertIn("anki.webengine.status", implemented)
-        self.assertNotIn("anki.context.get_deck_browser", implemented)
-        self.assertNotIn("anki.media.add_url", implemented)
-        self.assertNotIn("anki.browser.search", implemented)
-        self.assertNotIn("anki.browser.apply_tags", implemented)
-        self.assertNotIn("anki.editor.get_focused_note", implemented)
-        self.assertNotIn("anki.editor.set_field", implemented)
-        self.assertNotIn("anki.editor.insert_media", implemented)
-        self.assertIn("anki.webengine.list_pages", implemented)
-        self.assertIn("anki.webengine.take_snapshot", implemented)
-        self.assertIn("anki.webengine.take_screenshot", implemented)
-        self.assertIn("anki.webengine.evaluate_script", implemented)
-        self.assertIn("anki.webengine.click", implemented)
-        self.assertIn("anki.webengine.type_text", implemented)
-        self.assertIn("anki.webengine.press_key", implemented)
-        self.assertIn("anki.webengine.wait_for", implemented)
-        self.assertIn("anki.webengine.list_console_messages", implemented)
-        self.assertIn("anki.webengine.list_network_requests", implemented)
-        self.assertIn("anki.webengine.send_cdp_command", implemented)
-        self.assertIn("anki.export.notes", implemented)
-        self.assertIn("anki.export.deck_snapshot", implemented)
-        self.assertIn("anki.export.deck_package", implemented)
-        self.assertIn("anki.export.collection_package", implemented)
-        self.assertIn("anki.backup.create", implemented)
+        self.assertIn("anki_app_get_state", implemented)
+        self.assertNotIn("anki_context_get_current", implemented)
+        self.assertIn("anki_note_search", implemented)
+        self.assertIn("anki_note_get", implemented)
+        self.assertIn("anki_note_update_fields", implemented)
+        self.assertIn("anki_note_add_tag", implemented)
+        self.assertIn("anki_runtime_info", implemented)
+        self.assertIn("anki_webengine_status", implemented)
+        self.assertNotIn("anki_context_get_deck_browser", implemented)
+        self.assertNotIn("anki_media_add_url", implemented)
+        self.assertNotIn("anki_browser_search", implemented)
+        self.assertNotIn("anki_browser_apply_tags", implemented)
+        self.assertNotIn("anki_editor_get_focused_note", implemented)
+        self.assertNotIn("anki_editor_set_field", implemented)
+        self.assertNotIn("anki_editor_insert_media", implemented)
+        self.assertIn("anki_webengine_list_pages", implemented)
+        self.assertIn("anki_webengine_take_snapshot", implemented)
+        self.assertIn("anki_webengine_take_screenshot", implemented)
+        self.assertIn("anki_webengine_evaluate_script", implemented)
+        self.assertIn("anki_webengine_click", implemented)
+        self.assertIn("anki_webengine_type_text", implemented)
+        self.assertIn("anki_webengine_press_key", implemented)
+        self.assertIn("anki_webengine_wait_for", implemented)
+        self.assertIn("anki_webengine_send_cdp_command", implemented)
+        self.assertIn("anki_export_notes", implemented)
+        self.assertIn("anki_export_deck_snapshot", implemented)
+        self.assertIn("anki_export_deck_package", implemented)
+        self.assertIn("anki_export_collection_package", implemented)
+        self.assertIn("anki_backup_create", implemented)
         entries = {entry.name: entry for entry in command_catalog()}
         self.assertNotIn(
             "legacy",
-            entries["anki.export.collection_package"].input_schema.properties,
+            entries["anki_export_collection_package"].input_schema.properties,
         )
         removed = {
-            "anki.note.create_draft",
-            "anki.note.update_fields_draft",
-            "anki.note.duplicate",
-            "anki.note.bulk_add_tag",
-            "anki.context.get_selection",
-            "anki.context.get_deck_browser",
-            "anki.navigate.deck_browser",
-            "anki.navigate.browser_search",
-            "anki.navigate.note",
-            "anki.navigate.card",
-            "anki.card.reposition",
-            "anki.deck.rename",
-            "anki.model.get_fields",
-            "anki.model.get_templates",
-            "anki.model.get_css",
-            "anki.template.render",
-            "anki.template.diff",
-            "anki.template.validate",
-            "anki.template.update_draft",
-            "anki.media.find_refs",
-            "anki.media.validate_missing",
-            "anki.media.validate_unused",
-            "anki.media.attachments",
-            "anki.media.add_url",
-            "anki.browser.search",
-            "anki.browser.apply_tags",
-            "anki.editor.get_focused_note",
-            "anki.editor.set_field",
-            "anki.editor.insert_media",
-            "anki.browser.set_search",
-            "anki.browser.get_selection",
-            "anki.editor.preview_current_note",
-            "anki.editor.get_fields",
-            "anki.import.preview_csv",
-            "anki.import.apply_csv",
-            "anki.backup.collection",
-            "anki.dev.sql_read",
-            "anki.dev.list_hooks",
-            "anki.dev.get_addon_config",
-            "anki.dev.diagnostics",
+            "anki_note_create_draft",
+            "anki_note_update_fields_draft",
+            "anki_note_duplicate",
+            "anki_note_bulk_add_tag",
+            "anki_context_get_selection",
+            "anki_context_get_deck_browser",
+            "anki_navigate_deck_browser",
+            "anki_navigate_browser_search",
+            "anki_navigate_note",
+            "anki_navigate_card",
+            "anki_card_reposition",
+            "anki_deck_rename",
+            "anki_model_get_fields",
+            "anki_model_get_templates",
+            "anki_model_get_css",
+            "anki_template_render",
+            "anki_template_diff",
+            "anki_template_validate",
+            "anki_template_update_draft",
+            "anki_media_find_refs",
+            "anki_media_validate_missing",
+            "anki_media_validate_unused",
+            "anki_media_attachments",
+            "anki_media_add_url",
+            "anki_browser_search",
+            "anki_browser_apply_tags",
+            "anki_editor_get_focused_note",
+            "anki_editor_set_field",
+            "anki_editor_insert_media",
+            "anki_browser_set_search",
+            "anki_browser_get_selection",
+            "anki_editor_preview_current_note",
+            "anki_editor_get_fields",
+            "anki_import_preview_csv",
+            "anki_import_apply_csv",
+            "anki_backup_collection",
+            "anki_dev_sql_read",
+            "anki_dev_list_hooks",
+            "anki_dev_get_addon_config",
+            "anki_dev_diagnostics",
+            "anki_webengine_list_console_messages",
+            "anki_webengine_list_network_requests",
         }
         self.assertTrue(removed.isdisjoint(implemented))
 
     def test_webengine_catalog_annotations_are_standard_mcp_only(self):
         entries = {entry.name: entry for entry in command_catalog()}
 
-        self.assertEqual(entries["anki.webengine.take_snapshot"].risk, "read")
-        self.assertEqual(entries["anki.webengine.take_screenshot"].risk, "read")
-        self.assertEqual(entries["anki.webengine.list_console_messages"].risk, "read")
-        self.assertEqual(entries["anki.webengine.list_network_requests"].risk, "read")
-        self.assertEqual(entries["anki.webengine.evaluate_script"].risk, "dev_exec")
-        self.assertEqual(entries["anki.webengine.wait_for"].risk, "dev_exec")
-        self.assertNotIn("approved", entries["anki.webengine.wait_for"].input_schema.properties)
-        self.assertIn("preferredTarget", entries["anki.webengine.take_snapshot"].input_schema.properties)
-        self.assertIn("main webview", entries["anki.webengine.take_snapshot"].description)
+        self.assertEqual(entries["anki_webengine_take_snapshot"].risk, "read")
+        self.assertEqual(entries["anki_webengine_take_screenshot"].risk, "read")
+        self.assertEqual(entries["anki_webengine_evaluate_script"].risk, "dev_exec")
+        self.assertEqual(entries["anki_webengine_wait_for"].risk, "dev_exec")
+        self.assertNotIn("approved", entries["anki_webengine_wait_for"].input_schema.properties)
+        self.assertIn("preferredTarget", entries["anki_webengine_take_snapshot"].input_schema.properties)
+        self.assertIn("main webview", entries["anki_webengine_take_snapshot"].description)
 
     def test_direct_executor_dispatches_registered_tool(self):
         executor = DirectExecutor()
-        executor.register("anki.execute", lambda args: {"args": args})
+        executor.register("anki_execute", lambda args: {"args": args})
 
-        result = executor.call("anki.execute", {"ok": True})
+        result = executor.call("anki_execute", {"ok": True})
 
         self.assertTrue(result.ok)
         self.assertEqual(result.result, {"args": {"ok": True}})
@@ -743,16 +754,16 @@ class AddonShellTests(unittest.TestCase):
     def test_direct_executor_reports_missing_tool(self):
         executor = DirectExecutor()
 
-        result = executor.call("anki.missing")
+        result = executor.call("anki_missing")
 
         self.assertFalse(result.ok)
         self.assertEqual(result.error, "tool_not_found")
 
     def test_direct_executor_can_unregister_tools(self):
         executor = DirectExecutor()
-        executor.register("anki.execute", lambda _args: {"ok": True})
+        executor.register("anki_execute", lambda _args: {"ok": True})
 
-        executor.unregister("anki.execute")
+        executor.unregister("anki_execute")
 
         self.assertEqual(executor.tools(), [])
 
@@ -786,6 +797,8 @@ class AddonShellTests(unittest.TestCase):
             result = webengine_tools.send_cdp_command({"method": "Runtime.evaluate"})
 
         self.assertNotIn("requiresApproval", result)
+        self.assertNotIn("ok", result)
+        self.assertNotIn("durationMs", result)
         self.assertEqual(result["method"], "Runtime.evaluate")
         self.assertEqual(result["target"]["selectionReason"], "preferred_main_webview")
         self.assertEqual(result["response"]["result"]["result"]["value"], "ok")
@@ -827,6 +840,8 @@ class AddonShellTests(unittest.TestCase):
         self.assertEqual(result["snapshot"]["text"], 'uid=e1_0 button "Show Answer"\n')
         self.assertEqual(result["snapshot"]["elements"]["e1_0"]["selector"], "#show")
         self.assertEqual(result["target"]["title"], "main webview")
+        self.assertNotIn("ok", result)
+        self.assertNotIn("durationMs", result)
 
     def test_webengine_snapshot_can_write_text_artifact(self):
         target = webengine_tools.TargetResolution(
@@ -893,46 +908,6 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("Input.dispatchKeyEvent", methods)
         self.assertTrue(any("snapshot_uid_not_found" in params.get("expression", "") for method, params in calls if method == "Runtime.evaluate"))
         self.assertTrue(any("window.ready" in params.get("expression", "") for method, params in calls if method == "Runtime.evaluate"))
-
-    def test_webengine_console_and_network_tools_collect_observe_window_events(self):
-        class FakeSession:
-            def __init__(self, websocket_url, *, timeout):
-                self.websocket_url = websocket_url
-                self.timeout = timeout
-                self.sent = []
-
-            def __enter__(self):
-                sessions.append(self)
-                return self
-
-            def __exit__(self, _exc_type, _exc, _tb):
-                return None
-
-            def send(self, method, params=None):
-                self.sent.append((method, params or {}))
-                return {"id": len(self.sent), "result": {}}
-
-            def collect(self, seconds, *, limit, methods=None):
-                self.collected = (seconds, limit, methods)
-                method = sorted(methods)[0] if methods else "Event"
-                return [{"method": method, "params": {"ok": True}}]
-
-        sessions = []
-        target = webengine_tools.TargetResolution(
-            "ws://127.0.0.1:9222/devtools/page/page-1",
-            {"id": "page-1", "type": "page", "title": "main webview", "url": "u", "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/page-1", "selectionReason": "preferred_main_webview"},
-        )
-        with mock.patch.object(webengine_tools, "_resolve_target", return_value=target), mock.patch.object(webengine_tools, "CdpSession", FakeSession):
-            console = webengine_tools.list_console_messages({"listenSeconds": 0.01, "limit": 3})
-            network = webengine_tools.list_network_requests({"listenSeconds": 0.01, "limit": 4})
-
-        self.assertEqual(console["count"], 1)
-        self.assertEqual(network["count"], 1)
-        self.assertEqual(console["target"]["selectionReason"], "preferred_main_webview")
-        self.assertEqual(network["target"]["selectionReason"], "preferred_main_webview")
-        self.assertIn(("Runtime.enable", {}), sessions[0].sent)
-        self.assertIn(("Log.enable", {}), sessions[0].sent)
-        self.assertIn(("Network.enable", {}), sessions[1].sent)
 
     def test_webengine_target_resolution_prefers_main_webview_and_reports_reason(self):
         pages = [
@@ -1040,10 +1015,14 @@ class AddonShellTests(unittest.TestCase):
             for thread in threads:
                 thread.join(timeout=1)
 
-        self.assertTrue(status["ok"])
+        self.assertTrue(status["available"])
         self.assertEqual(status["version"]["Browser"], "Anki/")
+        self.assertNotIn("ok", status)
+        self.assertNotIn("durationMs", status)
         self.assertEqual(pages["count"], 1)
         self.assertEqual(pages["pages"][0]["title"], "main webview")
+        self.assertNotIn("ok", pages)
+        self.assertNotIn("durationMs", pages)
 
     def test_bridge_status_updates(self):
         status = BridgeStatus()
@@ -1064,8 +1043,13 @@ class AddonShellTests(unittest.TestCase):
         finally:
             dev_tools._anki_snippet_globals = original
 
+        self.assertEqual(result, {"result": 3})
         self.assertNotIn("requiresApproval", result)
-        self.assertEqual(result["result"], 3)
+        self.assertNotIn("snippetPreview", result)
+        self.assertNotIn("ok", result)
+        self.assertNotIn("durationMs", result)
+        self.assertNotIn("approval", result)
+        self.assertNotIn("approved", result)
 
     def test_snippet_executes_with_anki_globals(self):
         original = dev_tools._anki_snippet_globals
@@ -1232,23 +1216,23 @@ class AddonShellTests(unittest.TestCase):
 
     def test_direct_executor_catches_base_exception(self):
         executor = DirectExecutor()
-        executor.register("anki.context.raise_exit", lambda _args: (_ for _ in ()).throw(SystemExit(9)))
+        executor.register("anki_context_raise_exit", lambda _args: (_ for _ in ()).throw(SystemExit(9)))
 
-        result = executor.call("anki.context.raise_exit", {})
+        result = executor.call("anki_context_raise_exit", {})
 
         self.assertFalse(result.ok)
         self.assertEqual(result.error, "execution_failed: 9")
 
     def test_direct_executor_returns_standard_tool_results(self):
         executor = DirectExecutor()
-        executor.register("anki.context.get_profile", lambda _args: {"name": "Test User"})
+        executor.register("anki_context_get_profile", lambda _args: {"name": "Test User"})
         executor.register(
-            "anki.note.update_fields",
+            "anki_note_update_fields",
             lambda _args: {"note": {"id": 1}, "updatedFields": ["Back"]},
         )
 
-        profile = executor.call("anki.context.get_profile", {})
-        mutation = executor.call("anki.note.update_fields", {"noteId": 1})
+        profile = executor.call("anki_context_get_profile", {})
+        mutation = executor.call("anki_note_update_fields", {"noteId": 1})
 
         self.assertTrue(profile.ok)
         self.assertEqual(profile.result["name"], "Test User")

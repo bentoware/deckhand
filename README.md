@@ -52,7 +52,7 @@ To debug the MCP server with the official MCP Inspector:
 make inspect-mcp
 ```
 
-Start Anki first so the Deckhand add-on owns the companion server, then run the Inspector against the same Streamable HTTP MCP endpoint Codex uses: `http://127.0.0.1:18765/mcp`.
+Start Anki first so the Deckhand add-on owns the companion server, then run the Inspector against the same Streamable HTTP MCP endpoint Codex uses: `http://127.0.0.1:28765/mcp`.
 
 Pass Inspector options after `--`:
 
@@ -71,13 +71,13 @@ DECKHAND_MCP_URL=http://127.0.0.1:18888/mcp make inspect-mcp
 Useful overrides:
 
 ```sh
-DECKHAND_SAFE_BRIDGE_URL=ws://127.0.0.1:18765/ws/anki
-DECKHAND_MCP_TOOL_ALLOWLIST=anki.execute,anki.app.get_state
+DECKHAND_SAFE_BRIDGE_URL=ws://127.0.0.1:28765/ws/anki
+DECKHAND_MCP_TOOL_ALLOWLIST=anki_execute,anki_app_get_state
 DECKHAND_MCP_TOOL_TIMEOUT_SECONDS=120
 DECKHAND_ANKI_PROGRAM_FILES="$HOME/Library/Application Support/AnkiProgramFiles"
 ```
 
-WebEngine CDP tools such as `anki.webengine.take_snapshot`, `anki.webengine.take_screenshot`, and `anki.webengine.evaluate_script` require Anki to be launched with Qt WebEngine remote debugging enabled:
+WebEngine CDP tools such as `anki_webengine_take_snapshot`, `anki_webengine_take_screenshot`, and `anki_webengine_evaluate_script` require Anki to be launched with Qt WebEngine remote debugging enabled:
 
 ```sh
 QTWEBENGINE_REMOTE_DEBUGGING=9222 open -a Anki

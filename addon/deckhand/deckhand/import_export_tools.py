@@ -38,7 +38,6 @@ def export_notes(
         else:
             target.write_text(json.dumps({"query": query, "notes": notes}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return {
-        "ok": True,
         "query": query,
         "format": fmt,
         "count": count,
@@ -67,7 +66,6 @@ def deck_snapshot(mw: Any, *, filePath: str | None = None, overwrite: bool = Fal
     target = _required_file_path(filePath, overwrite=overwrite)
     target.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return {
-        "ok": True,
         "summary": {
             "deckCount": snapshot["deckCount"],
             "modelCount": snapshot["modelCount"],
@@ -99,7 +97,6 @@ def backup_create(
     after = _backup_files(folder)
     candidate = _newest_file([path for path in after if path not in before] or after)
     result: dict[str, Any] = {
-        "ok": True,
         "created": created,
         "folderPath": str(folder),
         "mediaIncluded": False,
@@ -128,7 +125,6 @@ def export_deck_package(
         include_scheduling=includeScheduling,
     )
     return {
-        "ok": True,
         "deck": deck,
         "includeMedia": bool(includeMedia),
         "includeScheduling": bool(includeScheduling),
@@ -159,7 +155,6 @@ def export_collection_package(
         exporter.includeMedia = bool(includeMedia)
         exporter.exportInto(str(target))
     return {
-        "ok": True,
         "includeMedia": bool(includeMedia),
         "artifact": _artifact_metadata(target, kind="anki_collection_package", mime_type="application/octet-stream"),
     }

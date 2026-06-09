@@ -25,7 +25,7 @@ enum Command {
     /// Run the local companion HTTP/SSE server.
     Serve {
         /// Address to bind for the local product server.
-        #[arg(long, default_value = "127.0.0.1:18765")]
+        #[arg(long, default_value = "127.0.0.1:28765")]
         bind: SocketAddr,
     },
 }

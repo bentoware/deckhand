@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -13,20 +14,21 @@ ADDON_SRC = ROOT / "addon" / "deckhand"
 ADDON_MODULE = ADDON_SRC / "deckhand"
 ADDON_PY = ADDON_MODULE / "addon.py"
 INVENTORY = ROOT / "crates" / "deckhand-server" / "src" / "generated" / "mcp_tool_inventory.json"
+MCP_TOOL_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
 LEGACY_TOOL_NAMES = {
-    "anki.bridge.registry",
-    "anki.bridge.call",
-    "anki.bridge.server_call",
-    "anki.smoke.safe_bridge",
-    "anki.media.add_bytes",
-    "anki.import.preview_csv",
-    "anki.import.apply_csv",
-    "anki.backup.collection",
-    "anki.context.get_selection",
-    "anki.dev.set_addon_config",
-    "anki.dev.backup_collection",
-    "anki.dev.get_addon_config",
+    "anki_bridge_registry",
+    "anki_bridge_call",
+    "anki_bridge_server_call",
+    "anki_smoke_safe_bridge",
+    "anki_media_add_bytes",
+    "anki_import_preview_csv",
+    "anki_import_apply_csv",
+    "anki_backup_collection",
+    "anki_context_get_selection",
+    "anki_dev_set_addon_config",
+    "anki_dev_backup_collection",
+    "anki_dev_get_addon_config",
     "system.exec.run",
     "system.files.read",
     "system.files.write",
@@ -38,6 +40,7 @@ LEGACY_TOOL_NAMES = {
 
 LEGACY_SOURCE_TOKENS = {
     "requiresApproval",
+    "snippetPreview",
     "approval_id",
     "guardian",
     "/anki-bridge/call",
@@ -58,15 +61,15 @@ LEGACY_SOURCE_TOKENS = {
     "Open Sidebar",
     "browser_set_search",
     "editor_preview_current_note",
-    "anki.browser.get_selection",
-    "anki.browser.search",
-    "anki.browser.apply_tags",
-    "anki.context.get_selection",
-    "anki.context.get_deck_browser",
-    "anki.editor.get_fields",
-    "anki.editor.get_focused_note",
-    "anki.editor.set_field",
-    "anki.editor.insert_media",
+    "anki_browser_get_selection",
+    "anki_browser_search",
+    "anki_browser_apply_tags",
+    "anki_context_get_selection",
+    "anki_context_get_deck_browser",
+    "anki_editor_get_fields",
+    "anki_editor_get_focused_note",
+    "anki_editor_set_field",
+    "anki_editor_insert_media",
     "editor_get_fields",
     "note_create_draft",
     "note_update_fields_draft",
@@ -85,10 +88,10 @@ LEGACY_SOURCE_TOKENS = {
     "validate_missing",
     "validate_unused",
     "add_url",
-    "anki.navigate.deck_browser",
-    "anki.navigate.browser_search",
-    "anki.navigate.note",
-    "anki.navigate.card",
+    "anki_navigate_deck_browser",
+    "anki_navigate_browser_search",
+    "anki_navigate_note",
+    "anki_navigate_card",
     "navigate_deck_browser",
     "navigate_browser_search",
     "navigate_note",
@@ -143,9 +146,9 @@ def main() -> int:
         for entry in catalog
         if entry.status == "implemented"
         and "safe_bridge" in entry.paths
-        and entry.name.startswith("anki.")
-        and not entry.name.startswith("anki.bridge.")
-        and ".smoke." not in entry.name
+        and entry.name.startswith("anki_")
+        and not entry.name.startswith("anki_bridge_")
+        and not entry.name.startswith("anki_smoke_")
     }
     registered_names = _registered_tool_names(ADDON_PY)
     inventory_names = _inventory_tool_names(INVENTORY)
@@ -156,13 +159,14 @@ def main() -> int:
     errors.extend(_set_errors("catalog legacy tool", catalog_names & LEGACY_TOOL_NAMES))
     errors.extend(_set_errors("generated MCP inventory mismatch: missing", public_catalog_names - inventory_names))
     errors.extend(_set_errors("generated MCP inventory mismatch: extra", inventory_names - public_catalog_names))
+    errors.extend(_invalid_mcp_tool_name_errors(inventory_names))
 
     for entry in catalog:
         props = set((entry.input_schema.properties or {}).keys())
         if "approved" in props:
             errors.append(f"{entry.name}: input schema must not contain approved")
-        if entry.name == "anki.export.collection_package" and "legacy" in props:
-            errors.append("anki.export.collection_package: input schema must not contain legacy")
+        if entry.name == "anki_export_collection_package" and "legacy" in props:
+            errors.append("anki_export_collection_package: input schema must not contain legacy")
 
     errors.extend(_legacy_source_token_errors())
     errors.extend(_legacy_rust_source_token_errors())
@@ -200,6 +204,14 @@ def _inventory_tool_names(path: Path) -> set[str]:
 
 def _set_errors(label: str, names: set[str]) -> list[str]:
     return [f"{label}: {name}" for name in sorted(names)]
+
+
+def _invalid_mcp_tool_name_errors(names: set[str]) -> list[str]:
+    errors: list[str] = []
+    for name in sorted(names):
+        if "." in name or not MCP_TOOL_NAME_RE.match(name):
+            errors.append(f"invalid MCP tool name: {name}")
+    return errors
 
 
 def _legacy_source_token_errors() -> list[str]:
@@ -247,8 +259,8 @@ def _legacy_fixture_errors() -> list[str]:
             if _json_contains_key(payload, key):
                 errors.append(f"legacy fixture key {key!r} remains in {path.relative_to(ROOT)}")
         namespaces = payload.get("toolNamespaces")
-        if isinstance(namespaces, list) and "anki.navigate" in namespaces:
-            errors.append(f"legacy fixture namespace 'anki.navigate' remains in {path.relative_to(ROOT)}")
+        if isinstance(namespaces, list) and "anki_navigate" in namespaces:
+            errors.append(f"legacy fixture namespace 'anki_navigate' remains in {path.relative_to(ROOT)}")
     return errors
 
 

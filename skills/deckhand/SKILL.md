@@ -120,6 +120,7 @@ For user-facing troubleshooting, collect visible Deckhand state, current Anki sc
 
 - Do not edit Anki database files or media folders directly.
 - Use Deckhand or Anki UI/API pathways when a live tool is available.
+- Prefer typed read/export tools for large field, rendered HTML, bulk note, log, or diagnostic output; when custom `anki.execute` inspection is necessary, write a UTF-8 artifact to a caller-chosen local path and return compact metadata such as path, bytes, count, and summary.
 - Confirm the exact scope before bulk edits, imports, exports, deletes, reschedules, tag replacement, media insertion, backups, or template changes.
 - When uncertain, provide a preview list and ask the user to approve applying it.
 - Avoid `anki.execute` and WebEngine development tools unless the user asks for troubleshooting or development work and approves that escalation.

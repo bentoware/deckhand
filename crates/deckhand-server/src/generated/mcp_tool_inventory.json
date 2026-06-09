@@ -16,7 +16,7 @@
         "required": [],
         "type": "object"
       },
-      "name": "anki.app.get_state",
+      "name": "anki_app_get_state",
       "risk": "read",
       "status": "implemented",
       "title": "Get State"
@@ -35,7 +35,7 @@
         "required": [],
         "type": "object"
       },
-      "name": "anki.context.get_profile",
+      "name": "anki_context_get_profile",
       "risk": "read",
       "status": "implemented",
       "title": "Get Profile"
@@ -65,7 +65,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.note.search",
+      "name": "anki_note_search",
       "risk": "read",
       "status": "implemented",
       "title": "Search"
@@ -91,7 +91,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.note.get",
+      "name": "anki_note_get",
       "risk": "read",
       "status": "implemented",
       "title": "Get"
@@ -136,7 +136,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.note.create",
+      "name": "anki_note_create",
       "risk": "mutation",
       "status": "implemented",
       "title": "Create"
@@ -169,7 +169,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.note.update_fields",
+      "name": "anki_note_update_fields",
       "risk": "mutation",
       "status": "implemented",
       "title": "Update Fields"
@@ -200,7 +200,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.note.add_tag",
+      "name": "anki_note_add_tag",
       "risk": "mutation",
       "status": "implemented",
       "title": "Add Tag"
@@ -231,7 +231,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.note.remove_tag",
+      "name": "anki_note_remove_tag",
       "risk": "mutation",
       "status": "implemented",
       "title": "Remove Tag"
@@ -266,7 +266,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.note.set_tags",
+      "name": "anki_note_set_tags",
       "risk": "mutation",
       "status": "implemented",
       "title": "Set Tags"
@@ -302,7 +302,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.note.delete",
+      "name": "anki_note_delete",
       "risk": "destructive",
       "status": "implemented",
       "title": "Delete"
@@ -328,7 +328,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.card.get",
+      "name": "anki_card_get",
       "risk": "read",
       "status": "implemented",
       "title": "Get"
@@ -354,7 +354,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.card.find_by_note",
+      "name": "anki_card_find_by_note",
       "risk": "read",
       "status": "implemented",
       "title": "Find By Note"
@@ -380,7 +380,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.card.preview",
+      "name": "anki_card_preview",
       "risk": "read",
       "status": "implemented",
       "title": "Preview"
@@ -411,7 +411,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.card.suspend",
+      "name": "anki_card_suspend",
       "risk": "mutation",
       "status": "implemented",
       "title": "Suspend"
@@ -442,7 +442,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.card.unsuspend",
+      "name": "anki_card_unsuspend",
       "risk": "mutation",
       "status": "implemented",
       "title": "Unsuspend"
@@ -473,7 +473,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.card.bury",
+      "name": "anki_card_bury",
       "risk": "mutation",
       "status": "implemented",
       "title": "Bury"
@@ -504,7 +504,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.card.unbury",
+      "name": "anki_card_unbury",
       "risk": "mutation",
       "status": "implemented",
       "title": "Unbury"
@@ -539,7 +539,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.card.set_due",
+      "name": "anki_card_set_due",
       "risk": "mutation",
       "status": "implemented",
       "title": "Set Due"
@@ -558,7 +558,7 @@
         "required": [],
         "type": "object"
       },
-      "name": "anki.deck.list",
+      "name": "anki_deck_list",
       "risk": "read",
       "status": "implemented",
       "title": "List"
@@ -582,7 +582,7 @@
         "required": [],
         "type": "object"
       },
-      "name": "anki.deck.get_stats",
+      "name": "anki_deck_get_stats",
       "risk": "read",
       "status": "implemented",
       "title": "Get Stats"
@@ -608,7 +608,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.deck.create",
+      "name": "anki_deck_create",
       "risk": "mutation",
       "status": "implemented",
       "title": "Create"
@@ -627,7 +627,7 @@
         "required": [],
         "type": "object"
       },
-      "name": "anki.model.list",
+      "name": "anki_model_list",
       "risk": "read",
       "status": "implemented",
       "title": "List"
@@ -655,7 +655,7 @@
         "required": [],
         "type": "object"
       },
-      "name": "anki.model.get",
+      "name": "anki_model_get",
       "risk": "read",
       "status": "implemented",
       "title": "Get"
@@ -687,7 +687,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.media.add_file",
+      "name": "anki_media_add_file",
       "risk": "mutation",
       "status": "implemented",
       "title": "Add File"
@@ -713,7 +713,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.media.get",
+      "name": "anki_media_get",
       "risk": "read",
       "status": "implemented",
       "title": "Get"
@@ -752,7 +752,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.media.attach_to_field",
+      "name": "anki_media_attach_to_field",
       "risk": "mutation",
       "status": "implemented",
       "title": "Attach To Field"
@@ -797,7 +797,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.export.notes",
+      "name": "anki_export_notes",
       "risk": "read",
       "status": "implemented",
       "title": "Notes"
@@ -826,7 +826,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.export.deck_snapshot",
+      "name": "anki_export_deck_snapshot",
       "risk": "read",
       "status": "implemented",
       "title": "Deck Snapshot"
@@ -864,7 +864,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.export.deck_package",
+      "name": "anki_export_deck_package",
       "risk": "read",
       "status": "implemented",
       "title": "Deck Package"
@@ -896,7 +896,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.export.collection_package",
+      "name": "anki_export_collection_package",
       "risk": "read",
       "status": "implemented",
       "title": "Collection Package"
@@ -928,7 +928,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.backup.create",
+      "name": "anki_backup_create",
       "risk": "mutation",
       "status": "implemented",
       "title": "Create"
@@ -940,7 +940,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Execute Python inside Anki's main process. Use this instead of general Python for Anki inspection or mutation; code has normal imports plus mw/aqt access and returns the variable named result. For local Anki SDK/source reference, inspect {anki_sdk_anki_path} and {anki_sdk_aqt_path}.",
+      "description": "Execute Python inside Anki's main process. Use this instead of general Python for Anki inspection or mutation; code has normal imports plus mw/aqt access and returns the variable named result. Prefer Anki APIs via mw/aqt; do not edit the collection SQLite database or media folder directly for mutations; run UI-affecting work on Anki's main Qt thread; use WebEngine tools for rendered card/browser UI inspection. For large fields, rendered HTML, bulk note data, logs, or diagnostics, write a UTF-8 artifact to a caller-chosen local path and return compact metadata such as path, bytes, count, and summary instead of the full content. For local Anki SDK/source reference, inspect {anki_sdk_anki_path} and {anki_sdk_aqt_path}.",
       "input_schema": {
         "additionalProperties": true,
         "properties": {
@@ -954,10 +954,10 @@
         ],
         "type": "object"
       },
-      "name": "anki.execute",
+      "name": "anki_execute",
       "risk": "dev_exec",
       "status": "implemented",
-      "title": "Execute"
+      "title": "Anki Execute"
     },
     {
       "annotations": {
@@ -966,14 +966,14 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Return compact live Anki, Python, Qt, profile, collection, media, add-on, and local SDK path information for writing safe anki.execute snippets.",
+      "description": "Return compact live Anki, Python, Qt, profile, collection, media, add-on, and local SDK path information.",
       "input_schema": {
         "additionalProperties": true,
         "properties": {},
         "required": [],
         "type": "object"
       },
-      "name": "anki.runtime.info",
+      "name": "anki_runtime_info",
       "risk": "read",
       "status": "implemented",
       "title": "Info"
@@ -992,7 +992,7 @@
         "required": [],
         "type": "object"
       },
-      "name": "anki.webengine.status",
+      "name": "anki_webengine_status",
       "risk": "read",
       "status": "implemented",
       "title": "Status"
@@ -1011,7 +1011,7 @@
         "required": [],
         "type": "object"
       },
-      "name": "anki.webengine.list_pages",
+      "name": "anki_webengine_list_pages",
       "risk": "read",
       "status": "implemented",
       "title": "List Pages"
@@ -1087,7 +1087,7 @@
         "required": [],
         "type": "object"
       },
-      "name": "anki.webengine.take_snapshot",
+      "name": "anki_webengine_take_snapshot",
       "risk": "read",
       "status": "implemented",
       "title": "Take Snapshot"
@@ -1168,7 +1168,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.webengine.take_screenshot",
+      "name": "anki_webengine_take_screenshot",
       "risk": "read",
       "status": "implemented",
       "title": "Take Screenshot"
@@ -1239,7 +1239,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.webengine.evaluate_script",
+      "name": "anki_webengine_evaluate_script",
       "risk": "dev_exec",
       "status": "implemented",
       "title": "Evaluate Script"
@@ -1327,7 +1327,7 @@
         "required": [],
         "type": "object"
       },
-      "name": "anki.webengine.click",
+      "name": "anki_webengine_click",
       "risk": "dev_exec",
       "status": "implemented",
       "title": "Click"
@@ -1402,7 +1402,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.webengine.type_text",
+      "name": "anki_webengine_type_text",
       "risk": "dev_exec",
       "status": "implemented",
       "title": "Type Text"
@@ -1478,7 +1478,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.webengine.press_key",
+      "name": "anki_webengine_press_key",
       "risk": "dev_exec",
       "status": "implemented",
       "title": "Press Key"
@@ -1550,144 +1550,10 @@
         "required": [],
         "type": "object"
       },
-      "name": "anki.webengine.wait_for",
+      "name": "anki_webengine_wait_for",
       "risk": "dev_exec",
       "status": "implemented",
       "title": "Wait For"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": false,
-        "readOnlyHint": true
-      },
-      "description": "Observe console, log, and exception events from an Anki Qt WebEngine CDP page during a short capture window. If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous.",
-      "input_schema": {
-        "additionalProperties": true,
-        "properties": {
-          "host": {
-            "description": "Local CDP host. Defaults to 127.0.0.1 and must be localhost.",
-            "type": "string"
-          },
-          "limit": {
-            "minimum": 1,
-            "type": "integer"
-          },
-          "listenSeconds": {
-            "minimum": 0,
-            "type": "number"
-          },
-          "pageId": {
-            "description": "Exact CDP page id from list_pages.",
-            "type": "string"
-          },
-          "port": {
-            "description": "Local CDP port. Defaults to 9222.",
-            "minimum": 1,
-            "type": "integer"
-          },
-          "preferredTarget": {
-            "description": "How to choose a page when no explicit target selector is supplied. Default main prefers Anki's main webview; first chooses the first CDP page; strict fails if multiple pages are available.",
-            "enum": [
-              "main",
-              "first",
-              "strict"
-            ],
-            "type": "string"
-          },
-          "timeoutSeconds": {
-            "description": "Per-operation timeout in seconds.",
-            "minimum": 0.1,
-            "type": "number"
-          },
-          "title": {
-            "description": "Case-insensitive substring of the target page title.",
-            "type": "string"
-          },
-          "urlContains": {
-            "description": "Substring that must appear in the target page URL.",
-            "type": "string"
-          },
-          "webSocketDebuggerUrl": {
-            "description": "Exact CDP page WebSocket URL from list_pages. Overrides all other target selectors.",
-            "type": "string"
-          }
-        },
-        "required": [],
-        "type": "object"
-      },
-      "name": "anki.webengine.list_console_messages",
-      "risk": "read",
-      "status": "implemented",
-      "title": "List Console Messages"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": false,
-        "readOnlyHint": true
-      },
-      "description": "Observe network events from an Anki Qt WebEngine CDP page during a short capture window. If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous.",
-      "input_schema": {
-        "additionalProperties": true,
-        "properties": {
-          "host": {
-            "description": "Local CDP host. Defaults to 127.0.0.1 and must be localhost.",
-            "type": "string"
-          },
-          "limit": {
-            "minimum": 1,
-            "type": "integer"
-          },
-          "listenSeconds": {
-            "minimum": 0,
-            "type": "number"
-          },
-          "pageId": {
-            "description": "Exact CDP page id from list_pages.",
-            "type": "string"
-          },
-          "port": {
-            "description": "Local CDP port. Defaults to 9222.",
-            "minimum": 1,
-            "type": "integer"
-          },
-          "preferredTarget": {
-            "description": "How to choose a page when no explicit target selector is supplied. Default main prefers Anki's main webview; first chooses the first CDP page; strict fails if multiple pages are available.",
-            "enum": [
-              "main",
-              "first",
-              "strict"
-            ],
-            "type": "string"
-          },
-          "timeoutSeconds": {
-            "description": "Per-operation timeout in seconds.",
-            "minimum": 0.1,
-            "type": "number"
-          },
-          "title": {
-            "description": "Case-insensitive substring of the target page title.",
-            "type": "string"
-          },
-          "urlContains": {
-            "description": "Substring that must appear in the target page URL.",
-            "type": "string"
-          },
-          "webSocketDebuggerUrl": {
-            "description": "Exact CDP page WebSocket URL from list_pages. Overrides all other target selectors.",
-            "type": "string"
-          }
-        },
-        "required": [],
-        "type": "object"
-      },
-      "name": "anki.webengine.list_network_requests",
-      "risk": "read",
-      "status": "implemented",
-      "title": "List Network Requests"
     },
     {
       "annotations": {
@@ -1752,7 +1618,7 @@
         ],
         "type": "object"
       },
-      "name": "anki.webengine.send_cdp_command",
+      "name": "anki_webengine_send_cdp_command",
       "risk": "dev_exec",
       "status": "implemented",
       "title": "Send Cdp Command"

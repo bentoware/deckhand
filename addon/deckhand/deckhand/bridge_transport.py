@@ -16,7 +16,7 @@ from .capabilities import is_anki_bridge_tool_name
 from .direct_executor import DirectExecutor
 
 
-DEFAULT_URL = "ws://127.0.0.1:18765/ws/anki"
+DEFAULT_URL = "ws://127.0.0.1:28765/ws/anki"
 BRIDGE_PROTOCOL_VERSION = "deckhand.ankiBridge.v1"
 
 
@@ -77,7 +77,7 @@ class SafeBridgeClient:
     def _handle_message(self, sock: socket.socket, raw: str) -> None:
         self._log("safe_bridge.message_received", raw=raw)
         message = json.loads(raw)
-        if message.get("method") in {"anki.bridge.accept", "anki.bridge.reject"}:
+        if message.get("method") in {"anki_bridge_accept", "anki_bridge_reject"}:
             self._handle_control_message(raw)
             return
         if message.get("method") != "tool.call":
@@ -89,10 +89,12 @@ class SafeBridgeClient:
             result = self._executor_runner(tool, arguments)
         else:
             result = self._executor.call(tool, arguments).to_dict()
+        result.setdefault("durationMs", 0)
+        params = {"tool": tool, **result}
         response = {
             "id": message.get("id"),
             "method": "tool.result",
-            "params": {"tool": tool, "result": result},
+            "params": params,
         }
         send_text(sock, json.dumps(response, sort_keys=True))
         self._log("safe_bridge.tool_result_sent", tool=tool, ok=bool(result.get("ok")))
@@ -104,10 +106,10 @@ class SafeBridgeClient:
     def _handle_control_message(self, raw: str) -> bool:
         message = json.loads(raw)
         method = message.get("method")
-        if method == "anki.bridge.accept":
+        if method == "anki_bridge_accept":
             self._log("safe_bridge.accepted", protocol=message.get("params", {}).get("protocolVersion"))
             return True
-        if method == "anki.bridge.reject":
+        if method == "anki_bridge_reject":
             error = str(message.get("params", {}).get("error", "bridge_rejected"))
             bridge_status.update("disconnected", f"Anki bridge rejected: {error}")
             self._log("safe_bridge.rejected", error=error)
@@ -124,7 +126,7 @@ def bridge_hello_payload(registry: dict[str, Any], env: dict[str, str] | None = 
         if isinstance(tool, dict) and is_anki_bridge_tool_name(str(tool.get("name", "")))
     ]
     return {
-        "method": "anki.bridge.hello",
+        "method": "anki_bridge_hello",
         "params": {
             "protocolVersion": BRIDGE_PROTOCOL_VERSION,
             "addonVersion": str(registry.get("addonVersion") or "0.1.0"),

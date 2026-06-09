@@ -107,7 +107,7 @@ class BuildSystemTests(unittest.TestCase):
                     "--transport",
                     "http",
                     "--server-url",
-                    "http://127.0.0.1:18765/mcp",
+                    "http://127.0.0.1:28765/mcp",
                 ],
             ],
         )
@@ -134,7 +134,7 @@ class BuildSystemTests(unittest.TestCase):
                     "--transport",
                     "http",
                     "--server-url",
-                    "http://127.0.0.1:18765/mcp",
+                    "http://127.0.0.1:28765/mcp",
                 ],
             ],
         )

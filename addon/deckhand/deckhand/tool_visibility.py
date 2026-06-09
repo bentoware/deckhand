@@ -8,7 +8,7 @@ from .command_catalog import command_catalog
 from .state_paths import work_root
 
 VISIBILITY_PATH = work_root() / "tool-visibility.json"
-MINIMAL_TEMPLATE_TOOLS = frozenset({"anki.execute", "anki.runtime.info"})
+MINIMAL_TEMPLATE_TOOLS = frozenset({"anki_execute", "anki_runtime_info"})
 TEMPLATE_ALL = "all"
 TEMPLATE_RUNTIME_WEBENGINE = "runtime_webengine"
 TEMPLATE_NONE = "none"
@@ -19,10 +19,10 @@ def public_tool_names() -> list[str]:
         entry.name
         for entry in command_catalog()
         if entry.status == "implemented"
-        and entry.name.startswith("anki.")
+        and entry.name.startswith("anki_")
         and "safe_bridge" in entry.paths
-        and not entry.name.startswith("anki.bridge.")
-        and ".smoke." not in entry.name
+        and not entry.name.startswith("anki_bridge_")
+        and not entry.name.startswith("anki_smoke_")
     ]
 
 
@@ -55,7 +55,7 @@ def template_tool_names(template: str, all_names: Iterable[str] | None = None) -
         return [
             name
             for name in names
-            if name in MINIMAL_TEMPLATE_TOOLS or name.startswith("anki.webengine.")
+            if name in MINIMAL_TEMPLATE_TOOLS or name.startswith("anki_webengine_")
         ]
     if template == TEMPLATE_NONE:
         return []

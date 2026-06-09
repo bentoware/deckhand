@@ -23,7 +23,7 @@ class ToolResult:
 
 
 class DirectExecutor:
-    _ALLOWED_PREFIXES = ("anki.",)
+    _ALLOWED_PREFIXES = ("anki_",)
 
     def __init__(self) -> None:
         self._handlers: dict[str, Callable[[dict[str, Any]], Any]] = {}

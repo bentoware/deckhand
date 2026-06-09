@@ -9,21 +9,21 @@
     }
   },
   "toolNamespaces": [
-    "anki.context",
-    "anki.note",
-    "anki.card",
-    "anki.review",
-    "anki.deck",
-    "anki.model",
-    "anki.media",
-    "anki.export",
-    "anki.backup",
-    "anki.browser",
-    "anki.editor",
-    "anki.webengine"
+    "anki_context",
+    "anki_note",
+    "anki_card",
+    "anki_review",
+    "anki_deck",
+    "anki_model",
+    "anki_media",
+    "anki_export",
+    "anki_backup",
+    "anki_browser",
+    "anki_editor",
+    "anki_webengine"
   ],
   "registration": {
-    "method": "anki.bridge.hello",
+    "method": "anki_bridge_hello",
     "protocol": "deckhand.ankiBridge.v1",
     "capabilitiesSource": "addon.command_catalog",
     "reconnect": "replace_same_bridge_id"
@@ -32,7 +32,7 @@
     "method": "tool.call",
     "params": {
       "bridgeId": "profile-scoped",
-      "tool": "anki.context.get_profile",
+      "tool": "anki_context_get_profile",
       "arguments": {}
     }
   }

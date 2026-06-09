@@ -28,13 +28,13 @@ mod tests {
             .as_array()
             .expect("tool namespaces are an array")
             .iter()
-            .any(|namespace| namespace == "anki.dev"));
+            .any(|namespace| namespace == "anki_dev"));
         assert!(!contract["toolNamespaces"]
             .as_array()
             .expect("tool namespaces are an array")
             .iter()
-            .any(|namespace| namespace == "anki.navigate"));
-        assert_eq!(contract["registration"]["method"], "anki.bridge.hello");
+            .any(|namespace| namespace == "anki_navigate"));
+        assert_eq!(contract["registration"]["method"], "anki_bridge_hello");
         assert_eq!(contract["callEnvelope"]["method"], "tool.call");
         assert!(contract["callEnvelope"]["params"].get("approval").is_none());
     }
@@ -43,7 +43,7 @@ mod tests {
     fn tool_call_fixture_uses_anki_namespace() {
         let fixture = tool_call_fixture();
         assert_eq!(fixture["method"], "tool.call");
-        assert_eq!(fixture["params"]["tool"], "anki.app.get_state");
+        assert_eq!(fixture["params"]["tool"], "anki_app_get_state");
         assert!(fixture["params"].get("approval").is_none());
     }
 }

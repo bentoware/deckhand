@@ -11,12 +11,12 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 ADDON_SRC = ROOT / "addon" / "deckhand"
 OUTPUT = ROOT / "crates" / "deckhand-server" / "src" / "generated" / "mcp_tool_inventory.json"
-INTERNAL_ANKI_PREFIXES = ("anki.bridge.",)
-INTERNAL_ANKI_SEGMENTS = (".smoke.",)
+INTERNAL_ANKI_PREFIXES = ("anki_bridge_", "anki_smoke_")
 
 
 def _title(name: str) -> str:
-    words = name.split(".")[-1].replace("_", " ").split()
+    parts = name.split("_")
+    words = parts[2:] if parts[:1] == ["anki"] and len(parts) > 2 else parts
     return " ".join(word.capitalize() for word in words)
 
 
@@ -25,7 +25,7 @@ def _entry_payload(entry: Any) -> dict[str, Any]:
     read_only = entry.risk in {"read", "ui"}
     destructive = entry.risk in {"destructive", "dev_exec", "system_exec"}
     idempotent = entry.risk == "read" and entry.name.endswith(
-        (".status", ".list", ".list_pages", ".get_profile", ".registry")
+        ("_status", "_list", "_list_pages", "_get_profile", "_registry")
     )
     return {
         "name": entry.name,
@@ -48,9 +48,8 @@ def _is_public_mcp_tool(entry: Any) -> bool:
     return (
         entry.status == "implemented"
         and "safe_bridge" in entry.paths
-        and name.startswith("anki.")
+        and name.startswith("anki_")
         and not name.startswith(INTERNAL_ANKI_PREFIXES)
-        and not any(segment in name for segment in INTERNAL_ANKI_SEGMENTS)
     )
 
 

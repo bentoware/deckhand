@@ -14,7 +14,7 @@ from .bridge import bridge_status
 from .command_catalog import CommandCatalogEntry, command_catalog
 
 DEFAULT_CDP_PORT = 9222
-DEFAULT_COMPANION_URL = "http://127.0.0.1:18765"
+DEFAULT_COMPANION_URL = "http://127.0.0.1:28765"
 BANNER_TITLE = "Let Deckhand control Anki"
 BANNER_SUMMARY = "Restart once to let Deckhand inspect and operate Anki more reliably."
 BANNER_BODY = (
@@ -548,7 +548,7 @@ def tool_view_models(anki_tools: list[str]) -> list[dict[str, Any]]:
         models.append(
             {
                 "name": name,
-                "namespace": ".".join(name.split(".")[:2]),
+                "namespace": "_".join(name.split("_")[:2]),
                 "description": entry.description if entry else "No catalog metadata",
                 "requiredInputs": required,
                 "inputSchema": schema,
@@ -564,7 +564,7 @@ def _tool_annotations(name: str, entry: CommandCatalogEntry | None) -> dict[str,
     return {
         "readOnlyHint": risk in {"read", "ui"},
         "destructiveHint": risk in {"destructive", "dev_exec", "system_exec"},
-        "idempotentHint": bool(entry and risk == "read" and name.endswith((".status", ".list", ".list_pages", ".get_profile", ".registry"))),
+        "idempotentHint": bool(entry and risk == "read" and name.endswith(("_status", "_list", "_list_pages", "_get_profile", "_registry"))),
         "openWorldHint": bool(getattr(entry, "open_world", False)) if entry else False,
     }
 

@@ -1,7 +1,7 @@
 use rmcp::{
     model::{
-        CallToolRequestParams, CallToolResult, ErrorData as McpError, Implementation, JsonObject,
-        ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
+        CallToolRequestParams, CallToolResult, Content, ErrorData as McpError, Implementation,
+        JsonObject, ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
         ToolAnnotations,
     },
     service::RequestContext,
@@ -63,7 +63,7 @@ fn annotation_bool(annotations: &Value, key: &str) -> bool {
 }
 
 pub fn is_anki_mcp_tool(tool: &str) -> bool {
-    tool.starts_with("anki.")
+    tool.starts_with("anki_")
 }
 
 type DeckhandHttpMcpService = StreamableHttpService<
@@ -146,8 +146,8 @@ async fn call_mcp_tool(
         anyhow::bail!("unsupported Deckhand MCP tool: {tool}");
     }
 
-    let result = hub.call_tool(tool, arguments).await?;
-    Ok(call_tool_result(result))
+    let result = hub.call_tool(tool.clone(), arguments).await?;
+    call_tool_result(&tool, result)
 }
 
 fn json_object(value: Value) -> JsonObject {
@@ -157,13 +157,68 @@ fn json_object(value: Value) -> JsonObject {
     }
 }
 
-fn call_tool_result(value: Value) -> CallToolResult {
-    let ok = value.pointer("/params/result/ok").and_then(Value::as_bool);
-    if ok == Some(false) {
-        CallToolResult::structured_error(value)
+fn call_tool_result(tool: &str, value: Value) -> anyhow::Result<CallToolResult> {
+    let params = value
+        .get("params")
+        .and_then(Value::as_object)
+        .ok_or_else(|| anyhow::anyhow!("malformed_anki_bridge_tool_result"))?;
+    let ok = params
+        .get("ok")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| anyhow::anyhow!("malformed_anki_bridge_tool_result"))?;
+    if ok {
+        let payload = params.get("result").cloned().unwrap_or(Value::Null);
+        let summary = tool_success_summary(tool, &payload);
+        Ok(structured_tool_result(payload, false, summary))
     } else {
-        CallToolResult::structured(value)
+        let error = params
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("anki_tool_failed")
+            .to_string();
+        let payload = json!({ "tool": tool, "error": error });
+        Ok(structured_tool_result(
+            payload,
+            true,
+            format!("{tool}: {error}"),
+        ))
     }
+}
+
+fn structured_tool_result(payload: Value, is_error: bool, summary: String) -> CallToolResult {
+    let mut result = if is_error {
+        CallToolResult::structured_error(payload.clone())
+    } else {
+        CallToolResult::structured(payload.clone())
+    };
+    result.content = vec![Content::text(tool_text_content(&summary, &payload))];
+    result
+}
+
+fn tool_text_content(summary: &str, payload: &Value) -> String {
+    if payload.is_null() {
+        return summary.to_string();
+    }
+    match serde_json::to_string_pretty(payload) {
+        Ok(rendered) => format!("{summary}\n\n```json\n{rendered}\n```"),
+        Err(_) => summary.to_string(),
+    }
+}
+
+fn tool_success_summary(tool: &str, payload: &Value) -> String {
+    if let Some(path) = payload.pointer("/artifact/path").and_then(Value::as_str) {
+        return format!("{tool}: wrote {path}");
+    }
+    if let Some(path) = payload.get("path").and_then(Value::as_str) {
+        return format!("{tool}: wrote {path}");
+    }
+    if let Some(count) = payload.get("count").and_then(Value::as_i64) {
+        return format!("{tool}: {count} result(s)");
+    }
+    if let Some(count) = payload.get("toolCount").and_then(Value::as_i64) {
+        return format!("{tool}: {count} tool(s)");
+    }
+    format!("{tool}: ok")
 }
 
 #[cfg(test)]
@@ -188,15 +243,15 @@ mod tests {
         let tools = mcp_tool_inventory_for_visibility_path(&missing_visibility_path());
         let create = tools
             .iter()
-            .find(|tool| tool.name == "anki.note.create")
+            .find(|tool| tool.name == "anki_note_create")
             .unwrap();
         let execute = tools
             .iter()
-            .find(|tool| tool.name == "anki.execute")
+            .find(|tool| tool.name == "anki_execute")
             .unwrap();
         let status = tools
             .iter()
-            .find(|tool| tool.name == "anki.webengine.status")
+            .find(|tool| tool.name == "anki_webengine_status")
             .unwrap();
 
         assert_eq!(create.annotations["readOnlyHint"], false);
@@ -206,13 +261,14 @@ mod tests {
         assert_eq!(status.annotations["idempotentHint"], true);
         assert!(create.input_schema["properties"].get("approved").is_none());
         assert!(execute.input_schema["properties"].get("approved").is_none());
-        assert!(is_anki_mcp_tool("anki.app.get_state"));
-        assert!(is_anki_mcp_tool("anki.execute"));
+        assert!(is_anki_mcp_tool("anki_app_get_state"));
+        assert!(is_anki_mcp_tool("anki_execute"));
         assert!(!is_anki_mcp_tool("other.exec.run"));
+        assert!(!is_anki_mcp_tool("anki.note.search"));
     }
 
     #[test]
-    fn rmcp_tool_models_preserve_inventory_fields() {
+    fn rmcp_tool_models_advertise_canonical_underscore_names() {
         let tools = mcp_tool_inventory_for_visibility_path(&missing_visibility_path());
         let models = tools.iter().map(mcp_tool_model).collect::<Vec<_>>();
         let names = models
@@ -221,14 +277,17 @@ mod tests {
             .collect::<std::collections::BTreeSet<_>>();
 
         assert!(models.len() > 20);
-        assert!(names.contains("anki.app.get_state"));
-        assert!(!names.contains("anki.context.get_current"));
-        assert!(names.contains("anki.note.search"));
-        assert!(names.contains("anki.execute"));
+        assert!(names.contains("anki_app_get_state"));
+        assert!(!names.contains("anki_context_get_current"));
+        assert!(names.contains("anki_note_search"));
+        assert!(names.contains("anki_execute"));
+        assert!(names.iter().all(|name| name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')));
 
         let search = models
             .iter()
-            .find(|tool| tool.name.as_ref() == "anki.note.search")
+            .find(|tool| tool.name.as_ref() == "anki_note_search")
             .unwrap();
         assert_eq!(search.title.as_deref(), Some("Search"));
         assert_eq!(
@@ -264,10 +323,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rmcp_call_accepts_canonical_underscore_tool_names() {
+        let error = call_mcp_tool(
+            BridgeHub::default(),
+            "anki_execute".to_string(),
+            json!({"deck":"Deckhand Smoke","model":"Basic","fields":{"Front":"rmcp","Back":"preview"}}),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+
+        assert!(!error.is_empty());
+        assert!(!error.contains("unsupported Deckhand MCP tool"));
+    }
+
+    #[tokio::test]
     async fn rmcp_mutation_routes_directly_to_bridge_without_approval_preview() {
         let error = call_mcp_tool(
             BridgeHub::default(),
-            "anki.note.create".to_string(),
+            "anki_note_create".to_string(),
             json!({"deck":"Deckhand Smoke","model":"Basic","fields":{"Front":"rmcp","Back":"preview"}}),
         )
         .await
@@ -277,5 +351,79 @@ mod tests {
         assert!(!error.is_empty());
         assert!(!error.contains("requiresApproval"));
         assert!(!error.contains("elicitation"));
+    }
+
+    #[test]
+    fn rmcp_call_unwraps_bridge_success_envelope() {
+        let result = call_tool_result(
+            "anki_note_search",
+            json!({
+                "id": "bridge-call-1",
+                "method": "tool.result",
+                "params": {
+                    "tool": "anki_note_search",
+                    "ok": true,
+                    "result": { "query": "deckhand", "noteIds": [1, 2], "count": 2 },
+                    "error": null,
+                    "durationMs": 9
+                }
+            }),
+        )
+        .unwrap();
+        let structured = result.structured_content.unwrap();
+
+        assert_eq!(result.is_error, Some(false));
+        assert_eq!(structured["count"], 2);
+        assert!(structured.get("params").is_none());
+        assert!(structured.get("method").is_none());
+        assert!(structured.get("ok").is_none());
+        assert!(structured.get("result").is_none());
+        assert!(structured.get("error").is_none());
+        assert!(structured.get("durationMs").is_none());
+        assert_eq!(
+            serde_json::to_value(&result.content).unwrap()[0]["text"],
+            "anki_note_search: 2 result(s)\n\n```json\n{\n  \"count\": 2,\n  \"noteIds\": [\n    1,\n    2\n  ],\n  \"query\": \"deckhand\"\n}\n```"
+        );
+    }
+
+    #[test]
+    fn rmcp_call_converts_bridge_failure_to_tool_error() {
+        let result = call_tool_result(
+            "anki_note_get",
+            json!({
+                "id": "bridge-call-2",
+                "method": "tool.result",
+                "params": {
+                    "tool": "anki_note_get",
+                    "ok": false,
+                    "result": null,
+                    "error": "execution_failed: missing note",
+                    "durationMs": 3
+                }
+            }),
+        )
+        .unwrap();
+        let structured = result.structured_content.unwrap();
+
+        assert_eq!(result.is_error, Some(true));
+        assert_eq!(structured["tool"], "anki_note_get");
+        assert_eq!(structured["error"], "execution_failed: missing note");
+        assert!(structured.get("durationMs").is_none());
+        assert_eq!(
+            serde_json::to_value(&result.content).unwrap()[0]["text"],
+            "anki_note_get: execution_failed: missing note\n\n```json\n{\n  \"error\": \"execution_failed: missing note\",\n  \"tool\": \"anki_note_get\"\n}\n```"
+        );
+    }
+
+    #[test]
+    fn rmcp_call_rejects_malformed_bridge_result() {
+        let error = call_tool_result(
+            "anki_note_get",
+            json!({"params": {"tool": "anki_note_get"}}),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert_eq!(error, "malformed_anki_bridge_tool_result");
     }
 }

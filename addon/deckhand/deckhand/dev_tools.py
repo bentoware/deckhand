@@ -6,7 +6,6 @@ import json
 import os
 import posix
 import sys
-from time import perf_counter
 from typing import Any
 
 MAX_RESULT_CHARS = 4000
@@ -28,17 +27,13 @@ class GuardedModuleProxy:
 
 
 def run_python_snippet(snippet: str) -> dict[str, object]:
-    preview = {"snippetPreview": truncate(snippet)}
-    started = perf_counter()
     scope = _anki_snippet_globals()
     try:
         exec(compile(snippet, "<deckhand-dev-snippet>", "exec"), scope, scope)
     except BaseException as exc:  # noqa: BLE001 - normalize snippet exits/crashes into tool errors
         raise DevToolError(_format_snippet_failure(exc)) from exc
     return {
-        **preview,
         "result": sanitize_result(scope.get("result")),
-        "durationMs": _elapsed_ms(started),
     }
 
 
@@ -99,10 +94,6 @@ def _anki_snippet_globals() -> dict[str, object]:
         "result": None,
         "sys": guarded_sys,
     }
-
-
-def _elapsed_ms(started: float) -> int:
-    return max(0, int((perf_counter() - started) * 1000))
 
 
 def _blocked_callable(name: str) -> Any:

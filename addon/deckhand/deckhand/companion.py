@@ -14,7 +14,7 @@ from urllib.request import urlopen
 
 
 DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 18765
+DEFAULT_PORT = 28765
 EXPECTED_SERVICE = "deckhand-anki-companion"
 SERVER_BINARY = "deckhand-server.exe" if platform.system().lower() == "windows" else "deckhand-server"
 

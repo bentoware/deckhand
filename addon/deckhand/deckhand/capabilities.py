@@ -18,7 +18,7 @@ class ToolCapability:
 
 
 def is_anki_bridge_tool_name(name: str) -> bool:
-    return name.startswith("anki.")
+    return name.startswith("anki_")
 
 
 def anki_bridge_capabilities() -> list[ToolCapability]:
