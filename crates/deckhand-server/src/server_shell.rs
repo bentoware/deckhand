@@ -6,9 +6,10 @@ use http_body_util::{BodyExt, Full};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha1::{Digest, Sha1};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -23,6 +24,8 @@ const ANKI_SDK_ANKI_PATH_PLACEHOLDER: &str = "{anki_sdk_anki_path}";
 const ANKI_SDK_AQT_PATH_PLACEHOLDER: &str = "{anki_sdk_aqt_path}";
 const COMPANION_TOKEN_ENV: &str = "DECKHAND_COMPANION_TOKEN";
 const MCP_TOOL_TIMEOUT_ENV: &str = "DECKHAND_MCP_TOOL_TIMEOUT_SECONDS";
+const STATE_ROOT_ENV: &str = "DECKHAND_ANKI_EXTENSION_STATE_ROOT";
+const DEFAULT_STATE_ROOT: &str = "/Users/thoffman/github.com/bentoware/deckhand-state";
 const DEFAULT_MCP_TOOL_TIMEOUT_SECONDS: u64 = 120;
 
 #[derive(Debug, Clone, Serialize)]
@@ -149,7 +152,10 @@ impl BridgeHub {
         }
         let registered = self.inner.registration.lock().await.clone();
         if let Some(registration) = registered {
-            let listed = anki_bridge_tools_from_registration(&registration);
+            let listed = anki_bridge_tools_from_registration_for_visibility_path(
+                &registration,
+                &tool_visibility_path(),
+            );
             let visible = listed.as_array().is_some_and(|tools| {
                 tools.iter().any(|entry| {
                     entry
@@ -221,6 +227,14 @@ fn is_anki_bridge_tool_name(tool: &str) -> bool {
 }
 
 fn anki_bridge_tools_from_registration(registration: &Value) -> Value {
+    anki_bridge_tools_from_registration_for_visibility_path(registration, &tool_visibility_path())
+}
+
+fn anki_bridge_tools_from_registration_for_visibility_path(
+    registration: &Value,
+    visibility_path: &Path,
+) -> Value {
+    let visible = read_visible_tool_names(visibility_path);
     let tools = registration
         .pointer("/params/tools")
         .or_else(|| registration.pointer("/params/capabilities/tools"))
@@ -231,7 +245,9 @@ fn anki_bridge_tools_from_registration(registration: &Value) -> Value {
         .filter(|tool| {
             tool.get("name")
                 .and_then(Value::as_str)
-                .is_some_and(|name| is_anki_bridge_tool_name(name) && mcp_tool_allowed(name))
+                .is_some_and(|name| {
+                    is_anki_bridge_tool_name(name) && mcp_tool_allowed(name, visible.as_ref())
+                })
         })
         .collect::<Vec<_>>();
     json!(tools)
@@ -248,10 +264,34 @@ fn mcp_tool_allowlist() -> Option<Vec<String>> {
     (!tools.is_empty()).then_some(tools)
 }
 
-fn mcp_tool_allowed(name: &str) -> bool {
+fn mcp_tool_allowed(name: &str, visible: Option<&HashSet<String>>) -> bool {
+    let visibility_allowed = visible.is_none_or(|tools| tools.contains(name));
+    if !visibility_allowed {
+        return false;
+    }
     mcp_tool_allowlist()
         .as_ref()
         .is_none_or(|allowed| allowed.iter().any(|allowed_name| allowed_name == name))
+}
+
+fn tool_visibility_path() -> PathBuf {
+    env::var(STATE_ROOT_ENV)
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(DEFAULT_STATE_ROOT))
+        .join("tool-visibility.json")
+}
+
+fn read_visible_tool_names(path: &Path) -> Option<HashSet<String>> {
+    let payload = std::fs::read_to_string(path).ok()?;
+    let value = serde_json::from_str::<Value>(&payload).ok()?;
+    let tools = value.get("visibleTools")?.as_array()?;
+    Some(
+        tools
+            .iter()
+            .filter_map(Value::as_str)
+            .map(ToString::to_string)
+            .collect(),
+    )
 }
 
 pub fn status_snapshot() -> ServerStatus {
@@ -313,6 +353,10 @@ async fn status_payload() -> Value {
 }
 
 pub fn mcp_tool_inventory() -> Vec<McpTool> {
+    mcp_tool_inventory_for_visibility_path(&tool_visibility_path())
+}
+
+pub(crate) fn mcp_tool_inventory_for_visibility_path(visibility_path: &Path) -> Vec<McpTool> {
     static INVENTORY: OnceLock<Vec<McpTool>> = OnceLock::new();
     let inventory = INVENTORY
         .get_or_init(|| {
@@ -326,9 +370,10 @@ pub fn mcp_tool_inventory() -> Vec<McpTool> {
                 .collect()
         })
         .clone();
+    let visible = read_visible_tool_names(visibility_path);
     inventory
         .into_iter()
-        .filter(|tool| mcp_tool_allowed(&tool.name))
+        .filter(|tool| mcp_tool_allowed(&tool.name, visible.as_ref()))
         .collect()
 }
 
@@ -825,6 +870,17 @@ async fn write_response(
 mod tests {
     use super::*;
 
+    fn missing_visibility_path() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "deckhand-missing-visibility-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
     #[test]
     fn status_lists_required_endpoints_and_adapters() {
         let status = status_snapshot();
@@ -843,7 +899,7 @@ mod tests {
 
     #[test]
     fn mcp_inventory_advertises_expected_namespaces() {
-        let inventory = mcp_tool_inventory();
+        let inventory = mcp_tool_inventory_for_visibility_path(&missing_visibility_path());
         assert!(!inventory.is_empty());
         assert!(inventory
             .iter()
@@ -892,6 +948,82 @@ mod tests {
             !tool.description.contains(ANKI_SDK_ANKI_PATH_PLACEHOLDER)
                 && !tool.description.contains(ANKI_SDK_AQT_PATH_PLACEHOLDER)
         }));
+    }
+
+    #[test]
+    fn mcp_inventory_respects_saved_tool_visibility() {
+        let path = std::env::temp_dir().join(format!(
+            "deckhand-tool-visibility-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(
+            &path,
+            r#"{"visibleTools":["anki.execute","anki.runtime.info","anki.webengine.status","anki.unknown"]}"#,
+        )
+        .unwrap();
+
+        let inventory = mcp_tool_inventory_for_visibility_path(&path);
+        let names = inventory
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(
+            names,
+            ["anki.execute", "anki.runtime.info", "anki.webengine.status"]
+                .into_iter()
+                .collect()
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn bridge_registration_respects_saved_tool_visibility() {
+        let path = std::env::temp_dir().join(format!(
+            "deckhand-bridge-tool-visibility-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(
+            &path,
+            r#"{"visibleTools":["anki.execute","anki.webengine.status"]}"#,
+        )
+        .unwrap();
+
+        let tools = anki_bridge_tools_from_registration_for_visibility_path(
+            &json!({
+                "params": {
+                    "tools": [
+                        { "name": "anki.app.get_state" },
+                        { "name": "anki.execute" },
+                        { "name": "anki.webengine.status" },
+                        { "name": "other.exec.run" }
+                    ]
+                }
+            }),
+            &path,
+        );
+        let names = tools
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(
+            names,
+            ["anki.execute", "anki.webengine.status"]
+                .into_iter()
+                .collect()
+        );
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
@@ -1066,6 +1198,7 @@ mod tests {
                     "tools": [
                         { "name": "anki.app.get_state", "risk": "read" },
                         { "name": "anki.execute", "risk": "dev_exec" },
+                        { "name": "anki.webengine.status", "risk": "read" },
                         { "name": "other.exec.run", "risk": "system_exec" },
                         { "name": "other.exec.run", "risk": "system_exec" },
                         { "name": "other.sidebar.show_status", "risk": "ui" }
@@ -1079,13 +1212,13 @@ mod tests {
         assert_eq!(payload["source"], "anki_bridge");
         assert_eq!(payload["protocol"], "deckhand.ankiBridge.v1");
         assert_eq!(payload["tools"].as_array().unwrap().len(), 2);
-        assert_eq!(payload["tools"][0]["name"], "anki.app.get_state");
-        assert_eq!(payload["tools"][1]["name"], "anki.execute");
+        assert_eq!(payload["tools"][0]["name"], "anki.execute");
+        assert_eq!(payload["tools"][1]["name"], "anki.webengine.status");
 
         let mcp_payload = hub.mcp_tools_list_payload().await;
         assert_eq!(mcp_payload["tools"].as_array().unwrap().len(), 2);
-        assert_eq!(mcp_payload["tools"][0]["name"], "anki.app.get_state");
-        assert_eq!(mcp_payload["tools"][1]["name"], "anki.execute");
+        assert_eq!(mcp_payload["tools"][0]["name"], "anki.execute");
+        assert_eq!(mcp_payload["tools"][1]["name"], "anki.webengine.status");
     }
 
     #[test]

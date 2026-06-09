@@ -169,10 +169,23 @@ fn call_tool_result(value: Value) -> CallToolResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server_shell::mcp_tool_inventory_for_visibility_path;
+    use std::path::PathBuf;
+
+    fn missing_visibility_path() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "deckhand-rmcp-missing-visibility-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
 
     #[test]
     fn mcp_projection_uses_standard_annotations_without_approval_inputs() {
-        let tools = mcp_tool_inventory();
+        let tools = mcp_tool_inventory_for_visibility_path(&missing_visibility_path());
         let create = tools
             .iter()
             .find(|tool| tool.name == "anki.note.create")
@@ -200,7 +213,7 @@ mod tests {
 
     #[test]
     fn rmcp_tool_models_preserve_inventory_fields() {
-        let tools = mcp_tool_inventory();
+        let tools = mcp_tool_inventory_for_visibility_path(&missing_visibility_path());
         let models = tools.iter().map(mcp_tool_model).collect::<Vec<_>>();
         let names = models
             .iter()
