@@ -26,13 +26,12 @@ from deckhand import card_tools
 from deckhand import companion
 from deckhand import media_tools
 from deckhand import structure_tools
-from deckhand import ui_tools
 from deckhand import webengine_tools
 from deckhand.direct_executor import DirectExecutor
 
 
 class AddonShellTests(unittest.TestCase):
-    def test_capability_payload_exposes_safe_bridge_surface(self):
+    def test_capability_payload_marks_internal_bridge_path(self):
         payload = capability_payload()
         self.assertEqual(payload["paths"], ["safe_bridge"])
         self.assertIn("anki.execute", {tool["name"] for tool in payload["tools"]})
@@ -43,14 +42,16 @@ class AddonShellTests(unittest.TestCase):
         )
         self.assertTrue(all(tool["path"] == "safe_bridge" for tool in payload["tools"]))
 
-    def test_anki_bridge_capability_payload_advertises_anki_tools_and_exec(self):
+    def test_anki_bridge_capability_payload_advertises_internal_anki_tools(self):
         payload = anki_bridge_capability_payload()
         names = {tool["name"] for tool in payload["tools"]}
 
         self.assertEqual(payload["paths"], ["safe_bridge"])
+        self.assertIn("anki.app.get_state", names)
         self.assertIn("anki.context.get_current", names)
         self.assertIn("anki.note.search", names)
         self.assertIn("anki.execute", names)
+        self.assertNotIn("anki.review.answer_current", names)
         self.assertNotIn("anki.bridge.registry", names)
         self.assertNotIn("anki.bridge.call", names)
         self.assertNotIn("anki.bridge.server_call", names)
@@ -72,16 +73,21 @@ class AddonShellTests(unittest.TestCase):
         self.assertTrue(all(entry.name.startswith("anki.") for entry in catalog))
         self.assertTrue(all(".dev." not in entry.name for entry in catalog))
 
-    def test_addon_menu_exposes_management_and_developer_submenu(self):
+    def test_addon_menu_exposes_management_and_bridge_status(self):
         source = (ADDON / "deckhand" / "addon.py").read_text(encoding="utf-8")
 
         self.assertIn('QMenu("Deckhand", mw)', source)
         self.assertIn('QAction("Management", mw)', source)
-        self.assertIn('QMenu("Developer", mw)', source)
-        self.assertIn('QAction("Diagnostics", mw)', source)
         self.assertIn('QAction("Bridge Status", mw)', source)
-        self.assertIn('QAction("Developer Tools", mw)', source)
-        self.assertIn("developer_tools_action.triggered.connect(show_developer_tools)", source)
+        self.assertIn("menu.addAction(bridge_status_action)", source)
+        self.assertNotIn('QMenu("Developer", mw)', source)
+        self.assertNotIn("deckhand_developer_menu", source)
+        self.assertNotIn('QAction("Lens Inspector", mw)', source)
+        self.assertNotIn("developer_tools_action.triggered.connect(show_developer_tools)", source)
+        self.assertNotIn('QAction("Developer Tools", mw)', source)
+        self.assertNotIn('QAction("Diagnostics", mw)', source)
+        self.assertNotIn("def show_diagnostics", source)
+        self.assertNotIn("def diagnostics", source)
         self.assertNotIn('QAction("Open Sidebar", mw)', source)
         self.assertNotIn("DEFAULT_DESKTOP_EMBED_URL", source)
         self.assertNotIn("DECKHAND_DESKTOP_EMBED_URL", source)
@@ -89,11 +95,19 @@ class AddonShellTests(unittest.TestCase):
         self.assertNotIn("startChatTurn", source)
         self.assertNotIn("interruptChatTurn", source)
 
-    def test_addon_setup_loads_anki_lens_feature(self):
+    def test_addon_no_longer_loads_anki_lens_feature(self):
         source = (ADDON / "deckhand" / "addon.py").read_text(encoding="utf-8")
 
-        self.assertIn("from . import anki_lens", source)
-        self.assertIn('anki_lens.setup("deckhand")', source)
+        self.assertNotIn("from . import anki_lens", source)
+        self.assertNotIn('anki_lens.setup("deckhand")', source)
+
+    def test_addon_no_longer_uses_fake_runtime_note_store(self):
+        source = (ADDON / "deckhand" / "addon.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("_fallback_store", source)
+        self.assertNotIn("FakeNoteStore", source)
+        self.assertNotIn("Deckhand prototype", source)
+        self.assertIn("anki_collection_unavailable", source)
 
     def test_addon_no_longer_installs_qwebchannel_sidebar_bridge(self):
         source = (ADDON / "deckhand" / "addon.py").read_text(encoding="utf-8")
@@ -128,6 +142,8 @@ class AddonShellTests(unittest.TestCase):
         self.assertNotIn('QAction("Projects", mw)', source)
         self.assertNotIn('_show_web_window("manager"', source)
         self.assertNotIn('_show_web_window("projects"', source)
+        self.assertNotIn("def _show_web_window", source)
+        self.assertNotIn("QWebEngineView", source)
 
     def test_management_menu_and_cdp_banner_are_registered(self):
         source = (ADDON / "deckhand" / "addon.py").read_text(encoding="utf-8")
@@ -135,7 +151,7 @@ class AddonShellTests(unittest.TestCase):
 
         self.assertIn('QAction("Management", mw)', source)
         self.assertIn("management_action.triggered.connect(show_management)", source)
-        self.assertIn("def show_developer_tools() -> None:", source)
+        self.assertNotIn("def show_developer_tools() -> None:", source)
         self.assertIn("management.maybe_show_cdp_banner(mw, logger=_log)", source)
         self.assertIn("def show_management() -> None:", source)
         self.assertIn("QToolBar", management_source)
@@ -165,7 +181,6 @@ class AddonShellTests(unittest.TestCase):
 
     def test_management_snapshot_reports_cdp_and_bridge(self):
         original_runtime_status = management.companion.runtime_status
-        original_lens_enabled = management.anki_lens.enabled
         management.companion.runtime_status = lambda: {
             "state": "running",
             "detail": "test companion",
@@ -176,17 +191,15 @@ class AddonShellTests(unittest.TestCase):
             "bridgeUrl": "ws://127.0.0.1:18765/ws/anki",
             "health": {"healthy": True},
         }
-        management.anki_lens.enabled = lambda: True
         try:
             snapshot = management.management_snapshot(["anki.execute"])
         finally:
             management.companion.runtime_status = original_runtime_status
-            management.anki_lens.enabled = original_lens_enabled
 
         self.assertEqual(snapshot["cdp"]["port"], management.DEFAULT_CDP_PORT)
         self.assertEqual(snapshot["companion"]["runtime"]["pid"], 123)
-        self.assertTrue(snapshot["features"]["lensInspectorEnabled"])
-        self.assertIn("safeBridge", snapshot["companion"])
+        self.assertNotIn("features", snapshot)
+        self.assertIn("ankiBridge", snapshot["companion"])
         self.assertEqual(snapshot["ankiTools"], ["anki.execute"])
 
     def test_companion_uses_bundled_server_path_for_platform(self):
@@ -358,18 +371,15 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("CONNECTED_SUMMARY if enabled else BANNER_SUMMARY", source)
         self.assertIn("enabled=bool(status[\"open\"])", source)
 
-    def test_lens_inspector_is_opt_in_from_management(self):
+    def test_lens_inspector_is_removed_from_management(self):
         config = json.loads((ADDON / "config.json").read_text(encoding="utf-8"))
-        lens_source = (ADDON / "deckhand" / "anki_lens" / "lens.py").read_text(encoding="utf-8")
         management_source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
         management_body = management_source[
-            management_source.index("def _build_management_dialog") : management_source.index("def _build_developer_dialog")
+            management_source.index("def _build_management_dialog") : management_source.index("def mcp_install_instructions")
         ]
-        developer_body = management_source[management_source.index("def _build_developer_dialog") :]
 
-        self.assertFalse(config["enable_lens_inspector"])
-        self.assertIn('"enable_lens_inspector": False', lens_source)
-        self.assertIn("if not enabled():\n        return", lens_source)
+        self.assertNotIn("enable_lens_inspector", config)
+        self.assertFalse((ADDON / "deckhand" / "anki_lens").exists())
         self.assertNotIn('QCheckBox("Enable Lens Inspector")', management_body)
         self.assertIn('dialog.setWindowTitle("Deckhand Setup")', management_body)
         self.assertIn('QPushButton("Restart Deckhand helper")', management_body)
@@ -378,20 +388,19 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn('QPushButton("Copy MCP URL")', management_body)
         self.assertIn("QGuiApplication.clipboard()", management_body)
         self.assertIn("mcp_install_instructions(mcp_url)", management_body)
-        self.assertIn("management_snapshot", developer_body)
-        self.assertIn('QGroupBox("Developer Features")', developer_body)
-        self.assertIn("def show_developer_dialog", management_source)
-        self.assertIn('QCheckBox("Enable Lens Inspector")', developer_body)
-        self.assertIn("anki_lens.set_enabled", developer_body)
-        self.assertIn("Restart Anki for the Lens Inspector setting to take effect.", developer_body)
+        self.assertNotIn("QTabWidget", management_body)
+        self.assertNotIn("def show_developer_dialog", management_source)
+        self.assertNotIn("anki_lens", management_source)
 
-    def test_mcp_install_instructions_cover_major_clients(self):
+    def test_mcp_install_instructions_are_standard_http_only(self):
         instructions = management.mcp_install_instructions("http://127.0.0.1:18765/mcp")
 
-        self.assertEqual(set(instructions), {"Codex", "Claude Desktop", "Cursor", "VS Code"})
-        for body in instructions.values():
-            self.assertIn("http://127.0.0.1:18765/mcp", body)
-            self.assertIn("Streamable HTTP", body)
+        self.assertIn("http://127.0.0.1:18765/mcp", instructions)
+        self.assertIn("Streamable HTTP", instructions)
+        self.assertIn("standard", instructions)
+        self.assertNotIn("Claude Desktop", instructions)
+        self.assertNotIn("Cursor", instructions)
+        self.assertNotIn("VS Code", instructions)
 
     def test_bridge_transport_frame_helpers_round_trip(self):
         left, right = socket.socketpair()
@@ -447,6 +456,7 @@ class AddonShellTests(unittest.TestCase):
 
         self.assertEqual(payload["method"], "anki.bridge.hello")
         self.assertEqual(payload["params"]["protocolVersion"], "deckhand.ankiBridge.v1")
+        self.assertNotIn("protocol", payload["params"])
         self.assertEqual(payload["params"]["pairingToken"], "pairing-token")
         self.assertEqual(len(payload["params"]["tools"]), 2)
         self.assertEqual(payload["params"]["tools"][0]["name"], "anki.context.get_current")
@@ -531,12 +541,20 @@ class AddonShellTests(unittest.TestCase):
             entry.name for entry in command_catalog() if entry.status == "implemented"
         }
 
+        self.assertIn("anki.app.get_state", implemented)
         self.assertIn("anki.context.get_current", implemented)
         self.assertIn("anki.note.search", implemented)
         self.assertIn("anki.note.get", implemented)
         self.assertIn("anki.note.update_fields", implemented)
         self.assertIn("anki.note.add_tag", implemented)
         self.assertIn("anki.webengine.status", implemented)
+        self.assertNotIn("anki.context.get_deck_browser", implemented)
+        self.assertNotIn("anki.media.add_url", implemented)
+        self.assertNotIn("anki.browser.search", implemented)
+        self.assertNotIn("anki.browser.apply_tags", implemented)
+        self.assertNotIn("anki.editor.get_focused_note", implemented)
+        self.assertNotIn("anki.editor.set_field", implemented)
+        self.assertNotIn("anki.editor.insert_media", implemented)
         self.assertIn("anki.webengine.list_pages", implemented)
         self.assertIn("anki.webengine.take_snapshot", implemented)
         self.assertIn("anki.webengine.take_screenshot", implemented)
@@ -553,11 +571,22 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("anki.export.deck_package", implemented)
         self.assertIn("anki.export.collection_package", implemented)
         self.assertIn("anki.backup.create", implemented)
+        entries = {entry.name: entry for entry in command_catalog()}
+        self.assertNotIn(
+            "legacy",
+            entries["anki.export.collection_package"].input_schema.properties,
+        )
         removed = {
             "anki.note.create_draft",
             "anki.note.update_fields_draft",
             "anki.note.duplicate",
             "anki.note.bulk_add_tag",
+            "anki.context.get_selection",
+            "anki.context.get_deck_browser",
+            "anki.navigate.deck_browser",
+            "anki.navigate.browser_search",
+            "anki.navigate.note",
+            "anki.navigate.card",
             "anki.card.reposition",
             "anki.deck.rename",
             "anki.model.get_fields",
@@ -571,6 +600,12 @@ class AddonShellTests(unittest.TestCase):
             "anki.media.validate_missing",
             "anki.media.validate_unused",
             "anki.media.attachments",
+            "anki.media.add_url",
+            "anki.browser.search",
+            "anki.browser.apply_tags",
+            "anki.editor.get_focused_note",
+            "anki.editor.set_field",
+            "anki.editor.insert_media",
             "anki.browser.set_search",
             "anki.browser.get_selection",
             "anki.editor.preview_current_note",
@@ -875,10 +910,6 @@ class AddonShellTests(unittest.TestCase):
         self.assertEqual(status.to_dict()["state"], "connected")
         self.assertEqual(status.to_dict()["detail"], "test bridge")
 
-    def test_sql_read_requires_select(self):
-        with self.assertRaises(dev_tools.DevToolError):
-            dev_tools.require_read_only_sql("delete from notes")
-
     def test_snippet_executes_without_deckhand_approval_envelope(self):
         original = dev_tools._anki_snippet_globals
         dev_tools._anki_snippet_globals = lambda: {
@@ -971,18 +1002,6 @@ class AddonShellTests(unittest.TestCase):
             dev_tools._anki_snippet_globals = original
 
         self.assertEqual(str(context.exception), "snippet_failed:SystemExit: 3")
-
-    def test_diagnostics_shape_includes_runtime_sections(self):
-        result = dev_tools.diagnostics(
-            bridge={"state": "test"},
-            capabilities={"tools": []},
-            anki_tools=["anki.execute"],
-        )
-
-        self.assertIn("python", result)
-        self.assertIn("anki", result)
-        self.assertIn("qt", result)
-        self.assertEqual(result["addon"]["bridge"]["state"], "test")
 
     def test_typed_note_search_get_update_and_tag_shape(self):
         store = typed_tools.FakeNoteStore(
@@ -1078,7 +1097,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(result.error, "execution_failed: 9")
 
-    def test_safe_bridge_registry_and_call_envelope_shapes(self):
+    def test_direct_executor_returns_standard_tool_results(self):
         executor = DirectExecutor()
         executor.register("anki.context.get_profile", lambda _args: {"name": "Test User"})
         executor.register(
@@ -1107,34 +1126,11 @@ class AddonShellTests(unittest.TestCase):
         context = context_tools.current_context(mw)
         selection = context_tools.current_selection(mw)
         profile = context_tools.current_profile(mw)
-        deck_browser = context_tools.deck_browser_state(mw)
 
         self.assertEqual(context["screen"], "reviewer")
         self.assertEqual(context["reviewer"]["cardId"], 2001)
         self.assertEqual(selection["noteIds"], [1001])
         self.assertEqual(profile["name"], "User 1")
-        self.assertEqual(deck_browser["decks"][0]["name"], "Default")
-
-    def test_navigation_tools_drive_fake_browser_and_deck_browser(self):
-        mw = FakeMw()
-        mw.browser = FakeBrowser()
-        mw.deckBrowser = SimpleNamespace(
-            refreshed=False,
-            refresh=lambda: setattr(mw.deckBrowser, "refreshed", True),
-        )
-
-        deck = context_tools.navigate_deck_browser(mw)
-        search = context_tools.navigate_browser_search(mw, "tag:deckhand")
-        note = context_tools.navigate_note(mw, 1001)
-        card = context_tools.navigate_card(mw, 2001)
-
-        self.assertEqual(deck["screen"], "deckBrowser")
-        self.assertEqual(mw.moved_to, "deckBrowser")
-        self.assertTrue(mw.deckBrowser.refreshed)
-        self.assertEqual(search["query"], "tag:deckhand")
-        self.assertEqual(mw.browser.search.text(), "cid:2001")
-        self.assertEqual(note["query"], "nid:1001")
-        self.assertEqual(card["query"], "cid:2001")
 
     def test_card_tools_read_preview_and_scheduler_actions(self):
         mw = FakeMw()
@@ -1155,17 +1151,6 @@ class AddonShellTests(unittest.TestCase):
         self.assertFalse(unsuspended["after"][0]["suspended"])
         self.assertEqual(buried["cardIds"], [2001])
         self.assertEqual(due["days"], 3)
-
-    def test_review_answer_current_executes_directly(self):
-        mw = FakeMw()
-        mw.reviewer = SimpleNamespace(card=mw.col.get_card(2001), answered=None)
-        mw.reviewer._answerCard = lambda ease: setattr(mw.reviewer, "answered", ease)
-
-        answered = card_tools.review_answer_current(mw, 3)
-
-        self.assertNotIn("requiresApproval", answered)
-        self.assertTrue(answered["answered"])
-        self.assertEqual(mw.reviewer.answered, 3)
 
     def test_structure_tools_read_decks_models_and_stats(self):
         mw = FakeMw()
@@ -1234,21 +1219,17 @@ class AddonShellTests(unittest.TestCase):
         self.assertEqual(mw.col.updated_note_ids, [1001, 1001])
         self.assertFalse(mw.col.notes[1001].flushed)
 
-    def test_ui_and_media_mutations_prefer_collection_update_note(self):
+    def test_media_field_mutations_prefer_collection_update_note(self):
         source = Path("/private/tmp/deckhand-anki-tests/media/update path.txt")
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text("media smoke", encoding="utf-8")
         mw = FakeMw()
-        mw.browser = FakeBrowser()
-        mw.editor = FakeEditor(mw.col.get_note(1001))
         store = media_tools.AttachmentStore()
         added = media_tools.add_file(mw, store, str(source))
 
-        ui_tools.browser_apply_tags(mw, ["browser-save"])
-        ui_tools.editor_set_field(mw, "Back", "Editor update")
         media_tools.attach_to_field(mw, 1001, "Back", added["filename"])
 
-        self.assertGreaterEqual(mw.col.updated_note_ids.count(1001), 3)
+        self.assertGreaterEqual(mw.col.updated_note_ids.count(1001), 1)
         self.assertFalse(mw.col.notes[1001].flushed)
 
     def test_note_save_falls_back_to_flush_for_older_collection(self):
@@ -1259,26 +1240,6 @@ class AddonShellTests(unittest.TestCase):
         typed_tools.save_note(mw, note)
 
         self.assertTrue(note.flushed)
-
-    def test_browser_and_editor_ui_tools_with_fakes(self):
-        mw = FakeMw()
-        mw.browser = FakeBrowser()
-        mw.editor = FakeEditor(mw.col.get_note(1001))
-
-        selection = ui_tools.browser_get_selection(mw)
-        search = ui_tools.browser_search(mw, "deckhand", 5)
-        applied = ui_tools.browser_apply_tags(mw, ["ui-preview"])
-        focused = ui_tools.editor_get_focused_note(mw)
-        updated = ui_tools.editor_set_field(mw, "Back", "UI update")
-        inserted = ui_tools.editor_insert_media(mw, "image.png", "Back")
-
-        self.assertEqual(selection["noteIds"], [1001])
-        self.assertEqual(search["count"], 1)
-        self.assertNotIn("requiresApproval", applied)
-        self.assertEqual(focused["noteId"], 1001)
-        self.assertIn("Front", focused["fields"])
-        self.assertTrue(updated["updated"])
-        self.assertNotIn("requiresApproval", inserted)
 
     def test_import_export_backup_tools_with_fakes(self):
         mw = FakeMw()
@@ -1329,6 +1290,8 @@ class AddonShellTests(unittest.TestCase):
         self.assertFalse(backup["mediaIncluded"])
         self.assertTrue(Path(deck_package["artifact"]["path"]).exists())
         self.assertTrue(Path(collection_package["artifact"]["path"]).exists())
+        self.assertNotIn("legacy", collection_package)
+        self.assertEqual(mw.col._backend.collection_package_calls[0]["legacy"], False)
         self.assertEqual(mw.col._backend.backup_calls[0]["force"], True)
 
         with self.assertRaises(ValueError):

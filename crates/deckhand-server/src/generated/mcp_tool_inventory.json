@@ -1,0 +1,1744 @@
+{
+  "projection": "Anki namespace MCP projection for the standalone app bridge",
+  "source": "addon/deckhand/deckhand/command_catalog.py",
+  "tools": [
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Return current app, reviewer, editor, browser, deck, and profile state.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "anki.app.get_state",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Get State"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Return current reviewer/editor/browser context.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "anki.context.get_current",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Get Current"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Return active profile, collection, scheduler, and add-on runtime identity.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "anki.context.get_profile",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Get Profile"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Search notes and return note identifiers.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "limit": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "query": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "anki.note.search",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Search"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read fields, tags, deck, and model metadata for one note.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "noteId": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "noteId"
+        ],
+        "type": "object"
+      },
+      "name": "anki.note.get",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Get"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create a note.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "deck": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "model": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "deck",
+          "model",
+          "fields"
+        ],
+        "type": "object"
+      },
+      "name": "anki.note.create",
+      "risk": "mutation",
+      "status": "implemented",
+      "title": "Create"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Update explicitly requested note fields.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "noteId": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "noteId",
+          "fields"
+        ],
+        "type": "object"
+      },
+      "name": "anki.note.update_fields",
+      "risk": "mutation",
+      "status": "implemented",
+      "title": "Update Fields"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Add a tag to a note.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "noteId": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "tag": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "noteId",
+          "tag"
+        ],
+        "type": "object"
+      },
+      "name": "anki.note.add_tag",
+      "risk": "mutation",
+      "status": "implemented",
+      "title": "Add Tag"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Remove a tag from a note.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "noteId": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "tag": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "noteId",
+          "tag"
+        ],
+        "type": "object"
+      },
+      "name": "anki.note.remove_tag",
+      "risk": "mutation",
+      "status": "implemented",
+      "title": "Remove Tag"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Replace a note's tags.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "noteId": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "tags": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "noteId",
+          "tags"
+        ],
+        "type": "object"
+      },
+      "name": "anki.note.set_tags",
+      "risk": "mutation",
+      "status": "implemented",
+      "title": "Set Tags"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Delete one or more notes.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "cap": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "noteIds": {
+            "items": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "noteIds"
+        ],
+        "type": "object"
+      },
+      "name": "anki.note.delete",
+      "risk": "destructive",
+      "status": "implemented",
+      "title": "Delete"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read card metadata, state, queue, due, and linked note id.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "cardId": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cardId"
+        ],
+        "type": "object"
+      },
+      "name": "anki.card.get",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Get"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Return cards generated by a note.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "noteId": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "noteId"
+        ],
+        "type": "object"
+      },
+      "name": "anki.card.find_by_note",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Find By Note"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Render card front/back preview for inspection.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "cardId": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cardId"
+        ],
+        "type": "object"
+      },
+      "name": "anki.card.preview",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Preview"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Suspend cards.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "cardIds": {
+            "items": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "cardIds"
+        ],
+        "type": "object"
+      },
+      "name": "anki.card.suspend",
+      "risk": "mutation",
+      "status": "implemented",
+      "title": "Suspend"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Unsuspend cards.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "cardIds": {
+            "items": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "cardIds"
+        ],
+        "type": "object"
+      },
+      "name": "anki.card.unsuspend",
+      "risk": "mutation",
+      "status": "implemented",
+      "title": "Unsuspend"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Bury cards until the next day.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "cardIds": {
+            "items": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "cardIds"
+        ],
+        "type": "object"
+      },
+      "name": "anki.card.bury",
+      "risk": "mutation",
+      "status": "implemented",
+      "title": "Bury"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Unbury cards.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "cardIds": {
+            "items": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "cardIds"
+        ],
+        "type": "object"
+      },
+      "name": "anki.card.unbury",
+      "risk": "mutation",
+      "status": "implemented",
+      "title": "Unbury"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Set due dates for cards.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "cardIds": {
+            "items": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array"
+          },
+          "days": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cardIds",
+          "days"
+        ],
+        "type": "object"
+      },
+      "name": "anki.card.set_due",
+      "risk": "mutation",
+      "status": "implemented",
+      "title": "Set Due"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List decks and identifiers.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "anki.deck.list",
+      "risk": "read",
+      "status": "implemented",
+      "title": "List"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Return deck counts and scheduler stats.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "deckId": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "anki.deck.get_stats",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Get Stats"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create a deck.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "anki.deck.create",
+      "risk": "mutation",
+      "status": "implemented",
+      "title": "Create"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List note types and identifiers.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "anki.model.list",
+      "risk": "read",
+      "status": "implemented",
+      "title": "List"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Inspect one note type.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "modelId": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "modelName": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "anki.model.get",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Get"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Import a local media file with attachment provenance.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "path": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "provenance": {
+            "type": "object"
+          },
+          "sourceKind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "anki.media.add_file",
+      "risk": "mutation",
+      "status": "implemented",
+      "title": "Add File"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read media metadata and safe preview path.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "filename": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "filename"
+        ],
+        "type": "object"
+      },
+      "name": "anki.media.get",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Get"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Attach media markup to a note field.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "field": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "filename": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "noteId": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "noteId",
+          "field",
+          "filename"
+        ],
+        "type": "object"
+      },
+      "name": "anki.media.attach_to_field",
+      "risk": "mutation",
+      "status": "implemented",
+      "title": "Attach To Field"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Export notes matching an Anki search query to a required local file path. Returns artifact metadata only, not file contents.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "filePath": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "format": {
+            "enum": [
+              "csv",
+              "json"
+            ],
+            "type": "string"
+          },
+          "limit": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "overwrite": {
+            "type": "boolean"
+          },
+          "query": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "query",
+          "filePath"
+        ],
+        "type": "object"
+      },
+      "name": "anki.export.notes",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Notes"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Write a Deckhand JSON audit snapshot of decks, models, and deck stats to a required local file path. Returns artifact metadata and summary only.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "filePath": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "overwrite": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "filePath"
+        ],
+        "type": "object"
+      },
+      "name": "anki.export.deck_snapshot",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Deck Snapshot"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Export an Anki deck package to a required local file path using Anki's native package export APIs. Returns artifact metadata only.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "deck": {
+            "type": "string"
+          },
+          "filePath": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "includeMedia": {
+            "type": "boolean"
+          },
+          "includeScheduling": {
+            "type": "boolean"
+          },
+          "overwrite": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "filePath"
+        ],
+        "type": "object"
+      },
+      "name": "anki.export.deck_package",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Deck Package"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Export a modern Anki collection package to a required local file path using Anki's native collection export API. Returns artifact metadata only.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "filePath": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "includeMedia": {
+            "type": "boolean"
+          },
+          "overwrite": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "filePath"
+        ],
+        "type": "object"
+      },
+      "name": "anki.export.collection_package",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Collection Package"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create a native Anki no-media collection backup in a required local folder using Anki's backup API. Returns backup path metadata only.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "folderPath": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "force": {
+            "type": "boolean"
+          },
+          "waitForCompletion": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "folderPath"
+        ],
+        "type": "object"
+      },
+      "name": "anki.backup.create",
+      "risk": "mutation",
+      "status": "implemented",
+      "title": "Create"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Execute Python inside Anki's main process. Use this instead of general Python for Anki inspection or mutation; code has normal imports plus mw/aqt access and returns the variable named result. For local Anki SDK/source reference, inspect {anki_sdk_anki_path} and {anki_sdk_aqt_path}.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "snippet": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "snippet"
+        ],
+        "type": "object"
+      },
+      "name": "anki.execute",
+      "risk": "dev_exec",
+      "status": "implemented",
+      "title": "Execute"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Check Anki's local Qt WebEngine CDP endpoint status.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "anki.webengine.status",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Status"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List debuggable Anki Qt WebEngine pages from the local CDP endpoint.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "anki.webengine.list_pages",
+      "risk": "read",
+      "status": "implemented",
+      "title": "List Pages"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Return a compact DOM snapshot of an Anki Qt WebEngine CDP page. If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "host": {
+            "description": "Local CDP host. Defaults to 127.0.0.1 and must be localhost.",
+            "type": "string"
+          },
+          "maxElements": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxTextChars": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pageId": {
+            "description": "Exact CDP page id from list_pages.",
+            "type": "string"
+          },
+          "port": {
+            "description": "Local CDP port. Defaults to 9222.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "preferredTarget": {
+            "description": "How to choose a page when no explicit target selector is supplied. Default main prefers Anki's main webview; first chooses the first CDP page; strict fails if multiple pages are available.",
+            "enum": [
+              "main",
+              "first",
+              "strict"
+            ],
+            "type": "string"
+          },
+          "timeoutSeconds": {
+            "description": "Per-operation timeout in seconds.",
+            "minimum": 0.1,
+            "type": "number"
+          },
+          "title": {
+            "description": "Case-insensitive substring of the target page title.",
+            "type": "string"
+          },
+          "urlContains": {
+            "description": "Substring that must appear in the target page URL.",
+            "type": "string"
+          },
+          "webSocketDebuggerUrl": {
+            "description": "Exact CDP page WebSocket URL from list_pages. Overrides all other target selectors.",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "anki.webengine.take_snapshot",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Take Snapshot"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Capture an Anki Qt WebEngine CDP page screenshot to a required local file path. If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "captureBeyondViewport": {
+            "type": "boolean"
+          },
+          "filePath": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "format": {
+            "enum": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "type": "string"
+          },
+          "host": {
+            "description": "Local CDP host. Defaults to 127.0.0.1 and must be localhost.",
+            "type": "string"
+          },
+          "pageId": {
+            "description": "Exact CDP page id from list_pages.",
+            "type": "string"
+          },
+          "port": {
+            "description": "Local CDP port. Defaults to 9222.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "preferredTarget": {
+            "description": "How to choose a page when no explicit target selector is supplied. Default main prefers Anki's main webview; first chooses the first CDP page; strict fails if multiple pages are available.",
+            "enum": [
+              "main",
+              "first",
+              "strict"
+            ],
+            "type": "string"
+          },
+          "quality": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "timeoutSeconds": {
+            "description": "Per-operation timeout in seconds.",
+            "minimum": 0.1,
+            "type": "number"
+          },
+          "title": {
+            "description": "Case-insensitive substring of the target page title.",
+            "type": "string"
+          },
+          "urlContains": {
+            "description": "Substring that must appear in the target page URL.",
+            "type": "string"
+          },
+          "webSocketDebuggerUrl": {
+            "description": "Exact CDP page WebSocket URL from list_pages. Overrides all other target selectors.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "filePath"
+        ],
+        "type": "object"
+      },
+      "name": "anki.webengine.take_screenshot",
+      "risk": "read",
+      "status": "implemented",
+      "title": "Take Screenshot"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Run JavaScript in an Anki Qt WebEngine CDP page; this can change UI state. If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "awaitPromise": {
+            "type": "boolean"
+          },
+          "host": {
+            "description": "Local CDP host. Defaults to 127.0.0.1 and must be localhost.",
+            "type": "string"
+          },
+          "pageId": {
+            "description": "Exact CDP page id from list_pages.",
+            "type": "string"
+          },
+          "port": {
+            "description": "Local CDP port. Defaults to 9222.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "preferredTarget": {
+            "description": "How to choose a page when no explicit target selector is supplied. Default main prefers Anki's main webview; first chooses the first CDP page; strict fails if multiple pages are available.",
+            "enum": [
+              "main",
+              "first",
+              "strict"
+            ],
+            "type": "string"
+          },
+          "returnByValue": {
+            "type": "boolean"
+          },
+          "script": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "timeoutSeconds": {
+            "description": "Per-operation timeout in seconds.",
+            "minimum": 0.1,
+            "type": "number"
+          },
+          "title": {
+            "description": "Case-insensitive substring of the target page title.",
+            "type": "string"
+          },
+          "urlContains": {
+            "description": "Substring that must appear in the target page URL.",
+            "type": "string"
+          },
+          "webSocketDebuggerUrl": {
+            "description": "Exact CDP page WebSocket URL from list_pages. Overrides all other target selectors.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "script"
+        ],
+        "type": "object"
+      },
+      "name": "anki.webengine.evaluate_script",
+      "risk": "dev_exec",
+      "status": "implemented",
+      "title": "Evaluate Script"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Click in an Anki Qt WebEngine CDP page by selector, visible text, or coordinates; this changes UI state. If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "button": {
+            "enum": [
+              "left",
+              "middle",
+              "right",
+              "none"
+            ],
+            "type": "string"
+          },
+          "clickCount": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "host": {
+            "description": "Local CDP host. Defaults to 127.0.0.1 and must be localhost.",
+            "type": "string"
+          },
+          "pageId": {
+            "description": "Exact CDP page id from list_pages.",
+            "type": "string"
+          },
+          "port": {
+            "description": "Local CDP port. Defaults to 9222.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "preferredTarget": {
+            "description": "How to choose a page when no explicit target selector is supplied. Default main prefers Anki's main webview; first chooses the first CDP page; strict fails if multiple pages are available.",
+            "enum": [
+              "main",
+              "first",
+              "strict"
+            ],
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "timeoutSeconds": {
+            "description": "Per-operation timeout in seconds.",
+            "minimum": 0.1,
+            "type": "number"
+          },
+          "title": {
+            "description": "Case-insensitive substring of the target page title.",
+            "type": "string"
+          },
+          "urlContains": {
+            "description": "Substring that must appear in the target page URL.",
+            "type": "string"
+          },
+          "webSocketDebuggerUrl": {
+            "description": "Exact CDP page WebSocket URL from list_pages. Overrides all other target selectors.",
+            "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "anki.webengine.click",
+      "risk": "dev_exec",
+      "status": "implemented",
+      "title": "Click"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Type text into an Anki Qt WebEngine CDP page; this changes UI state. If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "clear": {
+            "type": "boolean"
+          },
+          "host": {
+            "description": "Local CDP host. Defaults to 127.0.0.1 and must be localhost.",
+            "type": "string"
+          },
+          "pageId": {
+            "description": "Exact CDP page id from list_pages.",
+            "type": "string"
+          },
+          "port": {
+            "description": "Local CDP port. Defaults to 9222.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "preferredTarget": {
+            "description": "How to choose a page when no explicit target selector is supplied. Default main prefers Anki's main webview; first chooses the first CDP page; strict fails if multiple pages are available.",
+            "enum": [
+              "main",
+              "first",
+              "strict"
+            ],
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "text": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "timeoutSeconds": {
+            "description": "Per-operation timeout in seconds.",
+            "minimum": 0.1,
+            "type": "number"
+          },
+          "title": {
+            "description": "Case-insensitive substring of the target page title.",
+            "type": "string"
+          },
+          "urlContains": {
+            "description": "Substring that must appear in the target page URL.",
+            "type": "string"
+          },
+          "webSocketDebuggerUrl": {
+            "description": "Exact CDP page WebSocket URL from list_pages. Overrides all other target selectors.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "anki.webengine.type_text",
+      "risk": "dev_exec",
+      "status": "implemented",
+      "title": "Type Text"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Dispatch a keyboard press to an Anki Qt WebEngine CDP page; this changes UI state. If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "host": {
+            "description": "Local CDP host. Defaults to 127.0.0.1 and must be localhost.",
+            "type": "string"
+          },
+          "key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "modifiers": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "pageId": {
+            "description": "Exact CDP page id from list_pages.",
+            "type": "string"
+          },
+          "port": {
+            "description": "Local CDP port. Defaults to 9222.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "preferredTarget": {
+            "description": "How to choose a page when no explicit target selector is supplied. Default main prefers Anki's main webview; first chooses the first CDP page; strict fails if multiple pages are available.",
+            "enum": [
+              "main",
+              "first",
+              "strict"
+            ],
+            "type": "string"
+          },
+          "timeoutSeconds": {
+            "description": "Per-operation timeout in seconds.",
+            "minimum": 0.1,
+            "type": "number"
+          },
+          "title": {
+            "description": "Case-insensitive substring of the target page title.",
+            "type": "string"
+          },
+          "urlContains": {
+            "description": "Substring that must appear in the target page URL.",
+            "type": "string"
+          },
+          "webSocketDebuggerUrl": {
+            "description": "Exact CDP page WebSocket URL from list_pages. Overrides all other target selectors.",
+            "type": "string"
+          },
+          "windowsVirtualKeyCode": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "type": "object"
+      },
+      "name": "anki.webengine.press_key",
+      "risk": "dev_exec",
+      "status": "implemented",
+      "title": "Press Key"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Wait for a selector, text, title, URL substring, or JavaScript expression in an Anki Qt WebEngine CDP page; expressions can change UI state. If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "expression": {
+            "type": "string"
+          },
+          "host": {
+            "description": "Local CDP host. Defaults to 127.0.0.1 and must be localhost.",
+            "type": "string"
+          },
+          "pageId": {
+            "description": "Exact CDP page id from list_pages.",
+            "type": "string"
+          },
+          "pollIntervalSeconds": {
+            "minimum": 0.01,
+            "type": "number"
+          },
+          "port": {
+            "description": "Local CDP port. Defaults to 9222.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "preferredTarget": {
+            "description": "How to choose a page when no explicit target selector is supplied. Default main prefers Anki's main webview; first chooses the first CDP page; strict fails if multiple pages are available.",
+            "enum": [
+              "main",
+              "first",
+              "strict"
+            ],
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "timeoutSeconds": {
+            "description": "Per-operation timeout in seconds.",
+            "minimum": 0.1,
+            "type": "number"
+          },
+          "title": {
+            "description": "Case-insensitive substring of the target page title.",
+            "type": "string"
+          },
+          "urlContains": {
+            "description": "Substring that must appear in the target page URL.",
+            "type": "string"
+          },
+          "webSocketDebuggerUrl": {
+            "description": "Exact CDP page WebSocket URL from list_pages. Overrides all other target selectors.",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "anki.webengine.wait_for",
+      "risk": "dev_exec",
+      "status": "implemented",
+      "title": "Wait For"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Observe console, log, and exception events from an Anki Qt WebEngine CDP page during a short capture window. If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "host": {
+            "description": "Local CDP host. Defaults to 127.0.0.1 and must be localhost.",
+            "type": "string"
+          },
+          "limit": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "listenSeconds": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "pageId": {
+            "description": "Exact CDP page id from list_pages.",
+            "type": "string"
+          },
+          "port": {
+            "description": "Local CDP port. Defaults to 9222.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "preferredTarget": {
+            "description": "How to choose a page when no explicit target selector is supplied. Default main prefers Anki's main webview; first chooses the first CDP page; strict fails if multiple pages are available.",
+            "enum": [
+              "main",
+              "first",
+              "strict"
+            ],
+            "type": "string"
+          },
+          "timeoutSeconds": {
+            "description": "Per-operation timeout in seconds.",
+            "minimum": 0.1,
+            "type": "number"
+          },
+          "title": {
+            "description": "Case-insensitive substring of the target page title.",
+            "type": "string"
+          },
+          "urlContains": {
+            "description": "Substring that must appear in the target page URL.",
+            "type": "string"
+          },
+          "webSocketDebuggerUrl": {
+            "description": "Exact CDP page WebSocket URL from list_pages. Overrides all other target selectors.",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "anki.webengine.list_console_messages",
+      "risk": "read",
+      "status": "implemented",
+      "title": "List Console Messages"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Observe network events from an Anki Qt WebEngine CDP page during a short capture window. If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "host": {
+            "description": "Local CDP host. Defaults to 127.0.0.1 and must be localhost.",
+            "type": "string"
+          },
+          "limit": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "listenSeconds": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "pageId": {
+            "description": "Exact CDP page id from list_pages.",
+            "type": "string"
+          },
+          "port": {
+            "description": "Local CDP port. Defaults to 9222.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "preferredTarget": {
+            "description": "How to choose a page when no explicit target selector is supplied. Default main prefers Anki's main webview; first chooses the first CDP page; strict fails if multiple pages are available.",
+            "enum": [
+              "main",
+              "first",
+              "strict"
+            ],
+            "type": "string"
+          },
+          "timeoutSeconds": {
+            "description": "Per-operation timeout in seconds.",
+            "minimum": 0.1,
+            "type": "number"
+          },
+          "title": {
+            "description": "Case-insensitive substring of the target page title.",
+            "type": "string"
+          },
+          "urlContains": {
+            "description": "Substring that must appear in the target page URL.",
+            "type": "string"
+          },
+          "webSocketDebuggerUrl": {
+            "description": "Exact CDP page WebSocket URL from list_pages. Overrides all other target selectors.",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "anki.webengine.list_network_requests",
+      "risk": "read",
+      "status": "implemented",
+      "title": "List Network Requests"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Send one raw CDP command to an Anki Qt WebEngine page; this can change UI state. If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous.",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "host": {
+            "description": "Local CDP host. Defaults to 127.0.0.1 and must be localhost.",
+            "type": "string"
+          },
+          "method": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "pageId": {
+            "description": "Exact CDP page id from list_pages.",
+            "type": "string"
+          },
+          "params": {
+            "type": "object"
+          },
+          "port": {
+            "description": "Local CDP port. Defaults to 9222.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "preferredTarget": {
+            "description": "How to choose a page when no explicit target selector is supplied. Default main prefers Anki's main webview; first chooses the first CDP page; strict fails if multiple pages are available.",
+            "enum": [
+              "main",
+              "first",
+              "strict"
+            ],
+            "type": "string"
+          },
+          "timeoutSeconds": {
+            "description": "Per-operation timeout in seconds.",
+            "minimum": 0.1,
+            "type": "number"
+          },
+          "title": {
+            "description": "Case-insensitive substring of the target page title.",
+            "type": "string"
+          },
+          "urlContains": {
+            "description": "Substring that must appear in the target page URL.",
+            "type": "string"
+          },
+          "webSocketDebuggerUrl": {
+            "description": "Exact CDP page WebSocket URL from list_pages. Overrides all other target selectors.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "method"
+        ],
+        "type": "object"
+      },
+      "name": "anki.webengine.send_cdp_command",
+      "risk": "dev_exec",
+      "status": "implemented",
+      "title": "Send Cdp Command"
+    }
+  ]
+}

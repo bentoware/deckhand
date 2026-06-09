@@ -1,4 +1,8 @@
 interface:
   display_name: "Deckhand"
-  short_description: "Use Deckhand with Anki cards and decks"
-  default_prompt: "Use $deckhand to help me work with Deckhand in Anki."
+  short_description: "Use Deckhand for high-quality Anki cards"
+  default_prompt:
+    - "Use $deckhand to turn this source into cited Anki cards."
+    - "Use $deckhand to diagnose and fix weak cards in my current Anki context."
+    - "Use $deckhand to create language-learning cards from this material."
+    - "Use $deckhand to make these cards clearer, prettier, and more memorable."

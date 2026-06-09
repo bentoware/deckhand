@@ -1,0 +1,11 @@
+{
+  "jsonrpc": "2.0",
+  "id": "bridge-call-001",
+  "method": "tool.call",
+  "params": {
+    "callId": "call_001",
+    "tool": "anki.context.get_current",
+    "arguments": {},
+    "mode": "safe_bridge"
+  }
+}

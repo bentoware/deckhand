@@ -1,0 +1,117 @@
+name: Package Anki Add-on
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-companion:
+    name: Build companion (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-aarch64
+            os: macos-14
+            target: aarch64-apple-darwin
+            binary: deckhand-server
+          - platform: macos-x86_64
+            os: macos-13
+            target: x86_64-apple-darwin
+            binary: deckhand-server
+          - platform: linux-x86_64
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            binary: deckhand-server
+          - platform: windows-x86_64
+            os: windows-2022
+            target: x86_64-pc-windows-msvc
+            binary: deckhand-server.exe
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/deckhand-server
+
+      - name: Build release companion
+        run: cargo build -p deckhand-server --release --target ${{ matrix.target }}
+
+      - name: Stage companion artifact
+        shell: bash
+        run: |
+          mkdir -p "artifacts/${{ matrix.platform }}"
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" "artifacts/${{ matrix.platform }}/${{ matrix.binary }}"
+
+      - name: Upload companion artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: companion-${{ matrix.platform }}
+          path: artifacts/${{ matrix.platform }}/${{ matrix.binary }}
+          if-no-files-found: error
+
+  package-addon:
+    name: Assemble .ankiaddon
+    runs-on: ubuntu-24.04
+    needs: build-companion
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download companion artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: companion-*
+          path: artifacts/companions
+          merge-multiple: false
+
+      - name: Assemble Anki add-on package
+        run: |
+          python3 scripts/build.py package-addon \
+            --skip-build \
+            --companion-binary macos-aarch64=artifacts/companions/companion-macos-aarch64/deckhand-server \
+            --companion-binary macos-x86_64=artifacts/companions/companion-macos-x86_64/deckhand-server \
+            --companion-binary linux-x86_64=artifacts/companions/companion-linux-x86_64/deckhand-server \
+            --companion-binary windows-x86_64=artifacts/companions/companion-windows-x86_64/deckhand-server.exe
+
+      - name: Inspect package contents
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          required = {
+              "manifest.json",
+              "bin/macos-aarch64/deckhand-server",
+              "bin/macos-x86_64/deckhand-server",
+              "bin/linux-x86_64/deckhand-server",
+              "bin/windows-x86_64/deckhand-server.exe",
+          }
+          with zipfile.ZipFile("dist/deckhand.ankiaddon") as archive:
+              names = set(archive.namelist())
+          missing = sorted(required - names)
+          if missing:
+              raise SystemExit(f"missing package entries: {missing}")
+          forbidden = [name for name in names if name.startswith((".git", ".codex-plugin/", ".")) and "-plugin/" in name]
+          if forbidden:
+              raise SystemExit(f"forbidden package entries: {forbidden}")
+          print(f"package entries: {len(names)}")
+          PY
+
+      - name: Upload Anki add-on package
+        uses: actions/upload-artifact@v4
+        with:
+          name: deckhand-ankiaddon
+          path: dist/deckhand.ankiaddon
+          if-no-files-found: error

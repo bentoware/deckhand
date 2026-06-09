@@ -1,0 +1,39 @@
+{
+  "version": "anki-access.v1",
+  "transport": {
+    "ankiBridge": {
+      "direction": "anki_addon_connects_outbound",
+      "url": "ws://127.0.0.1:{deckhand_port}/ws/anki",
+      "auth": "session_capability_token",
+      "encoding": "json_rpc_2_0_messages"
+    }
+  },
+  "toolNamespaces": [
+    "anki.context",
+    "anki.note",
+    "anki.card",
+    "anki.review",
+    "anki.deck",
+    "anki.model",
+    "anki.media",
+    "anki.export",
+    "anki.backup",
+    "anki.browser",
+    "anki.editor",
+    "anki.webengine"
+  ],
+  "registration": {
+    "method": "anki.bridge.hello",
+    "protocol": "deckhand.ankiBridge.v1",
+    "capabilitiesSource": "addon.command_catalog",
+    "reconnect": "replace_same_bridge_id"
+  },
+  "callEnvelope": {
+    "method": "tool.call",
+    "params": {
+      "bridgeId": "profile-scoped",
+      "tool": "anki.context.get_profile",
+      "arguments": {}
+    }
+  }
+}

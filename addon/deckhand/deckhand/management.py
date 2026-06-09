@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import platform
 import socket
@@ -9,7 +8,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import anki_lens
 from . import companion
 from .bridge import bridge_status
 
@@ -67,7 +65,7 @@ def companion_status() -> dict[str, Any]:
     runtime = companion.runtime_status()
     return {
         "runtime": runtime,
-        "safeBridge": bridge_status.to_dict(),
+        "ankiBridge": bridge_status.to_dict(),
         "httpUrl": runtime["url"],
         "bridgeUrl": runtime["bridgeUrl"],
         "mcpUrl": f"{runtime['url'].rstrip('/')}/mcp",
@@ -78,7 +76,6 @@ def management_snapshot(anki_tools: list[str] | None = None) -> dict[str, Any]:
     return {
         "cdp": cdp_status(),
         "companion": companion_status(),
-        "features": {"lensInspectorEnabled": anki_lens.enabled()},
         "ankiTools": anki_tools or [],
     }
 
@@ -199,18 +196,6 @@ def show_management_dialog(mw: Any, anki_tools: list[str], logger=None) -> None:
         logger("management.dialog_opened")
 
 
-def show_developer_dialog(mw: Any, anki_tools: list[str], logger=None) -> None:
-    try:
-        dialog = _build_developer_dialog(mw, anki_tools, logger=logger)
-    except Exception as exc:  # noqa: BLE001 - surface Qt failures in a plain dialog
-        if logger:
-            logger("management.developer_dialog_unavailable", error=str(exc))
-        raise
-    dialog.show()
-    if logger:
-        logger("management.developer_dialog_opened")
-
-
 def _clear_management_dialog() -> None:
     global _management_dialog
     _management_dialog = None
@@ -226,7 +211,6 @@ def _build_management_dialog(mw: Any, anki_tools: list[str], logger=None) -> Any
         QLabel,
         QLineEdit,
         QPushButton,
-        QTabWidget,
         QTextEdit,
         QVBoxLayout,
     )
@@ -260,8 +244,8 @@ def _build_management_dialog(mw: Any, anki_tools: list[str], logger=None) -> Any
     companion_layout.addWidget(QLabel("Connected to Anki"), 1, 0)
     companion_layout.addWidget(QLabel("yes" if runtime.get("ownedByAnki") else "not yet"), 1, 1)
     companion_layout.addWidget(QLabel("Bridge"), 2, 0)
-    companion_layout.addWidget(QLabel(_user_status(companion["safeBridge"].get("state", "unknown"))), 2, 1)
-    detail = QLabel(str(companion["safeBridge"].get("detail", "")))
+    companion_layout.addWidget(QLabel(_user_status(companion["ankiBridge"].get("state", "unknown"))), 2, 1)
+    detail = QLabel(str(companion["ankiBridge"].get("detail", "")))
     detail.setWordWrap(True)
     companion_layout.addWidget(QLabel("Detail"), 3, 0)
     companion_layout.addWidget(detail, 3, 1)
@@ -298,13 +282,10 @@ def _build_management_dialog(mw: Any, anki_tools: list[str], logger=None) -> Any
     url_row.addWidget(copy_button, 0, 2)
     install_layout.addLayout(url_row)
 
-    tabs = QTabWidget()
-    for provider, instructions in mcp_install_instructions(mcp_url).items():
-        tab = QTextEdit()
-        tab.setReadOnly(True)
-        tab.setPlainText(instructions)
-        tabs.addTab(tab, provider)
-    install_layout.addWidget(tabs)
+    instructions = QTextEdit()
+    instructions.setReadOnly(True)
+    instructions.setPlainText(mcp_install_instructions(mcp_url))
+    install_layout.addWidget(instructions)
     layout.addWidget(install_group, 1)
 
     buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
@@ -314,96 +295,14 @@ def _build_management_dialog(mw: Any, anki_tools: list[str], logger=None) -> Any
     return dialog
 
 
-def mcp_install_instructions(mcp_url: str) -> dict[str, str]:
-    return {
-        "Codex": (
-            "1. Open Codex settings.\n"
-            "2. Add a Streamable HTTP MCP server.\n"
-            f"3. Paste this server URL: {mcp_url}\n"
-            "4. Save, then reconnect tools."
-        ),
-        "Claude Desktop": (
-            "1. Open Claude Desktop settings.\n"
-            "2. Add a custom connector or MCP server.\n"
-            f"3. Use Streamable HTTP with URL: {mcp_url}\n"
-            "4. Restart Claude Desktop if it asks you to reload MCP servers."
-        ),
-        "Cursor": (
-            "1. Open Cursor Settings, then MCP.\n"
-            "2. Add a new MCP server.\n"
-            f"3. Choose HTTP or Streamable HTTP and paste: {mcp_url}\n"
-            "4. Enable the server for the current workspace."
-        ),
-        "VS Code": (
-            "1. Open the MCP or agent tools settings for your VS Code extension.\n"
-            "2. Add a Streamable HTTP MCP server.\n"
-            f"3. Paste this URL: {mcp_url}\n"
-            "4. Reload the extension or window if tools do not appear."
-        ),
-    }
-
-
-def _build_developer_dialog(mw: Any, anki_tools: list[str], logger=None) -> Any:
-    from aqt.qt import (
-        QCheckBox,
-        QDialog,
-        QDialogButtonBox,
-        QGridLayout,
-        QGroupBox,
-        QLabel,
-        QMessageBox,
-        QPushButton,
-        QPlainTextEdit,
-        QVBoxLayout,
+def mcp_install_instructions(mcp_url: str) -> str:
+    return (
+        "Deckhand exposes one standard Streamable HTTP MCP endpoint.\n\n"
+        "1. Open your MCP client's server settings.\n"
+        "2. Add a Streamable HTTP MCP server.\n"
+        f"3. Paste this server URL: {mcp_url}\n"
+        "4. Save, then reconnect or refresh the client's tools list."
     )
-
-    dialog = QDialog(mw)
-    dialog.setWindowTitle("Deckhand Developer Tools")
-    dialog.resize(720, 560)
-    layout = QVBoxLayout(dialog)
-
-    cdp_group = QGroupBox("Browser Control Details")
-    cdp_layout = QGridLayout(cdp_group)
-    cdp = cdp_status()
-    cdp_layout.addWidget(QLabel("CDP port"), 0, 0)
-    cdp_layout.addWidget(QLabel(str(cdp["port"])), 0, 1)
-    cdp_layout.addWidget(QLabel("Status"), 1, 0)
-    cdp_layout.addWidget(QLabel("running" if cdp["open"] else "not exposed"), 1, 1)
-    restart_button = QPushButton("Restart Anki with CDP")
-    restart_button.clicked.connect(lambda _checked=False: restart_anki_with_cdp(cdp["port"], logger=logger))
-    cdp_layout.addWidget(restart_button, 2, 0, 1, 2)
-    layout.addWidget(cdp_group)
-
-    features_group = QGroupBox("Developer Features")
-    features_layout = QVBoxLayout(features_group)
-    lens_checkbox = QCheckBox("Enable Lens Inspector")
-    lens_checkbox.setChecked(anki_lens.enabled())
-    lens_checkbox.setToolTip("Shows Deckhand Lens inspection controls for debugging Anki UI context.")
-    features_layout.addWidget(lens_checkbox)
-
-    def update_lens_enabled(checked: bool) -> None:
-        anki_lens.set_enabled(bool(checked))
-        if logger:
-            logger("management.lens_inspector_toggled", enabled=bool(checked))
-        QMessageBox.information(
-            dialog,
-            "Restart Anki",
-            "Restart Anki for the Lens Inspector setting to take effect.",
-        )
-
-    lens_checkbox.toggled.connect(update_lens_enabled)
-    layout.addWidget(features_group)
-
-    snapshot = QPlainTextEdit(dialog)
-    snapshot.setReadOnly(True)
-    snapshot.setPlainText(json.dumps(management_snapshot(anki_tools), indent=2, sort_keys=True))
-    layout.addWidget(snapshot, 1)
-
-    buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-    buttons.rejected.connect(dialog.reject)
-    buttons.accepted.connect(dialog.accept)
-    layout.addWidget(buttons)
-    return dialog
 
 
 def _user_status(value: Any) -> str:

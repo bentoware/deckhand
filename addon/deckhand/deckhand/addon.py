@@ -8,7 +8,6 @@ import time
 from pathlib import Path
 
 from . import bridge_transport
-from . import anki_lens
 from . import card_tools
 from . import companion
 from . import context_tools
@@ -18,7 +17,6 @@ from . import management
 from . import media_tools
 from . import structure_tools
 from . import typed_tools
-from . import ui_tools
 from . import webengine_tools
 from .bridge import bridge_status
 from .capabilities import anki_bridge_capability_payload, capability_payload
@@ -31,15 +29,6 @@ _executor = DirectExecutor()
 _attachment_store = media_tools.AttachmentStore()
 _safe_bridge_client = None
 _companion_shutdown_hook_installed = False
-_fallback_store = typed_tools.FakeNoteStore(
-    [
-        typed_tools.NoteRecord(
-            id=1,
-            fields={"Front": "Deckhand prototype", "Back": "Native Anki add-on"},
-            tags=["deckhand"],
-        )
-    ]
-)
 _MAX_EVIDENCE_LOG_BYTES = 5 * 1024 * 1024
 _TRIMMED_EVIDENCE_LOG_BYTES = 2 * 1024 * 1024
 
@@ -131,7 +120,6 @@ def setup() -> None:
     _install_companion_shutdown_hook()
     _start_safe_bridge_transport()
     _install_menu(mw)
-    anki_lens.setup("deckhand")
     management.maybe_show_cdp_banner(mw, logger=_log)
 
     _log(
@@ -178,22 +166,9 @@ def _install_menu(mw) -> None:
     management_action.triggered.connect(show_management)
     menu.addAction(management_action)
 
-    developer_menu = QMenu("Developer", mw)
-    developer_menu.setObjectName("deckhand_developer_menu")
-
-    diagnostics_action = QAction("Diagnostics", mw)
-    diagnostics_action.triggered.connect(show_diagnostics)
-    developer_menu.addAction(diagnostics_action)
-
     bridge_status_action = QAction("Bridge Status", mw)
     bridge_status_action.triggered.connect(show_bridge_status)
-    developer_menu.addAction(bridge_status_action)
-
-    developer_tools_action = QAction("Developer Tools", mw)
-    developer_tools_action.triggered.connect(show_developer_tools)
-    developer_menu.addAction(developer_tools_action)
-
-    menu.addMenu(developer_menu)
+    menu.addAction(bridge_status_action)
 
     menu_bar = mw.form.menubar
     help_menu = getattr(mw.form, "menuHelp", None)
@@ -226,40 +201,13 @@ def _register_default_tools() -> None:
     _executor.register("anki.webengine.list_network_requests", lambda args: webengine_tools.list_network_requests(args))
     _executor.register("anki.webengine.send_cdp_command", lambda args: webengine_tools.send_cdp_command(args))
     _executor.register(
+        "anki.app.get_state", lambda _args: context_tools.current_context(_mw())
+    )
+    _executor.register(
         "anki.context.get_current", lambda _args: context_tools.current_context(_mw())
     )
     _executor.register(
-        "anki.context.get_selection", lambda _args: context_tools.current_selection(_mw())
-    )
-    _executor.register(
         "anki.context.get_profile", lambda _args: context_tools.current_profile(_mw())
-    )
-    _executor.register(
-        "anki.context.get_deck_browser", lambda _args: context_tools.deck_browser_state(_mw())
-    )
-    _executor.register(
-        "anki.navigate.deck_browser", lambda _args: _navigation_result("anki.navigate.deck_browser", context_tools.navigate_deck_browser(_mw()))
-    )
-    _executor.register(
-        "anki.navigate.browser_search",
-        lambda args: _navigation_result(
-            "anki.navigate.browser_search",
-            context_tools.navigate_browser_search(_mw(), str(args.get("query", ""))),
-        ),
-    )
-    _executor.register(
-        "anki.navigate.note",
-        lambda args: _navigation_result(
-            "anki.navigate.note",
-            context_tools.navigate_note(_mw(), int(args.get("noteId"))),
-        ),
-    )
-    _executor.register(
-        "anki.navigate.card",
-        lambda args: _navigation_result(
-            "anki.navigate.card",
-            context_tools.navigate_card(_mw(), int(args.get("cardId"))),
-        ),
     )
     _executor.register(
         "anki.note.search",
@@ -356,10 +304,6 @@ def _register_default_tools() -> None:
             int(args.get("days", 0)),
         ),
     )
-    _executor.register(
-        "anki.review.answer_current",
-        lambda args: card_tools.review_answer_current(_mw(), int(args.get("ease", 1))),
-    )
     _executor.register("anki.deck.list", lambda _args: structure_tools.deck_list(_mw()))
     _executor.register(
         "anki.deck.get_stats",
@@ -382,15 +326,6 @@ def _register_default_tools() -> None:
             str(args.get("path", "")),
             source_kind=str(args.get("sourceKind", "user_input")),
             provenance=dict(args.get("provenance", {})),
-        ),
-    )
-    _executor.register(
-        "anki.media.add_url",
-        lambda args: media_tools.add_url(
-            _mw(),
-            _attachment_store,
-            str(args.get("url", "")),
-            source_kind=str(args.get("sourceKind", "remote_url")),
         ),
     )
     _executor.register(
@@ -443,7 +378,6 @@ def _register_default_tools() -> None:
             _mw(),
             filePath=args.get("filePath"),
             includeMedia=bool(args.get("includeMedia", True)),
-            legacy=bool(args.get("legacy", False)),
             overwrite=bool(args.get("overwrite", False)),
         ),
     )
@@ -456,24 +390,6 @@ def _register_default_tools() -> None:
             waitForCompletion=bool(args.get("waitForCompletion", True)),
         ),
     )
-    _executor.register(
-        "anki.browser.search",
-        lambda args: ui_tools.browser_search(_mw(), str(args.get("query", "")), int(args.get("limit", 50))),
-    )
-    _executor.register(
-        "anki.browser.apply_tags",
-        lambda args: ui_tools.browser_apply_tags(_mw(), list(args.get("tags", []))),
-    )
-    _executor.register("anki.editor.get_focused_note", lambda _args: ui_tools.editor_get_focused_note(_mw()))
-    _executor.register(
-        "anki.editor.set_field",
-        lambda args: ui_tools.editor_set_field(_mw(), str(args.get("field", "")), str(args.get("value", ""))),
-    )
-    _executor.register(
-        "anki.editor.insert_media",
-        lambda args: ui_tools.editor_insert_media(_mw(), str(args.get("filename", "")), args.get("field")),
-    )
-
 
 def _mw():
     from aqt import mw
@@ -481,13 +397,11 @@ def _mw():
     return mw
 
 
-def _navigation_result(event: str, result: dict[str, object]) -> dict[str, object]:
-    _log(event, **result)
-    return result
-
-
 def _note_store() -> typed_tools.NoteStore:
-    return typed_tools.collection_store_from_anki() or _fallback_store
+    store = typed_tools.collection_store_from_anki()
+    if store is None:
+        raise RuntimeError("anki_collection_unavailable")
+    return store
 
 
 def _bridge_registry() -> dict[str, object]:
@@ -497,7 +411,6 @@ def _bridge_registry() -> dict[str, object]:
     collection_base = str(profile.get("base") or "")
     return {
         "bridgeId": "anki-local-profile",
-        "protocol": "deckhand.safe_bridge.v1",
         "protocolVersion": "deckhand.ankiBridge.v1",
         "addonVersion": "0.1.0",
         "profileHash": hashlib.sha256(profile_name.encode("utf-8")).hexdigest()[:16],
@@ -508,14 +421,6 @@ def _bridge_registry() -> dict[str, object]:
     }
 
 
-def diagnostics() -> dict[str, object]:
-    return dev_tools.diagnostics(
-        capabilities=capability_payload(),
-        bridge=bridge_status.to_dict(),
-        anki_tools=_executor.tools(),
-    )
-
-
 def show_management() -> None:
     try:
         from aqt import mw
@@ -523,19 +428,6 @@ def show_management() -> None:
         _log("management.unavailable", error=str(exc))
         return
     management.show_management_dialog(mw, _executor.tools(), logger=_log)
-
-
-def show_developer_tools() -> None:
-    try:
-        from aqt import mw
-    except Exception as exc:  # pragma: no cover - only meaningful inside Anki/Qt
-        _log("developer_tools.unavailable", error=str(exc))
-        return
-    management.show_developer_dialog(mw, _executor.tools(), logger=_log)
-
-
-def show_diagnostics() -> None:
-    _show_text_dialog("Deckhand Diagnostics", json.dumps(diagnostics(), indent=2, sort_keys=True))
 
 
 def show_bridge_status() -> None:
@@ -550,40 +442,6 @@ def show_bridge_status() -> None:
         ]
     )
     _show_text_dialog("Deckhand Bridge Status", text)
-
-
-def _show_web_window(key: str, title: str, html_name: str) -> None:
-    global _windows
-    existing = _windows.get(key)
-    if existing is not None:
-        try:
-            existing.show()
-            existing.raise_()
-            existing.activateWindow()
-            return
-        except Exception:
-            _windows.pop(key, None)
-
-    try:
-        from aqt import mw
-        from aqt.qt import QDialog, QUrl, QVBoxLayout, QWebEngineView
-    except Exception as exc:  # pragma: no cover - fallback for Anki builds without WebEngine
-        _log("menu.web_window_unavailable", key=key, error=str(exc))
-        _show_text_dialog(title, f"{title} is unavailable because Qt WebEngine is not available.\n\n{exc}")
-        return
-
-    dialog = QDialog(mw)
-    dialog.setWindowTitle(title)
-    dialog.resize(920, 640)
-    layout = QVBoxLayout(dialog)
-    view = QWebEngineView(dialog)
-    layout.addWidget(view)
-    html_path = Path(__file__).resolve().parent / "web" / html_name
-    view.load(QUrl.fromLocalFile(str(html_path)))
-    dialog.finished.connect(lambda _result, window_key=key: _windows.pop(window_key, None))
-    _windows[key] = dialog
-    dialog.show()
-    _log("menu.web_window_opened", key=key, htmlPath=str(html_path))
 
 
 def _show_text_dialog(title: str, text: str) -> None:
