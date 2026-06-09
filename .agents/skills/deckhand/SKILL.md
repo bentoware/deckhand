@@ -27,17 +27,10 @@ dist/deckhand.ankiaddon      packaged add-on output
 
 ## Common Commands
 
-Run the add-on in local Anki and open the sidebar:
+Run the add-on in local Anki:
 
 ```sh
-python3 scripts/build.py sync -- --restart-anki --open-sidebar
-```
-
-If the restart step quits Anki but macOS refuses the relaunch, run:
-
-```sh
-open -a Anki
-osascript -e 'tell application "Anki" to activate' -e 'delay 1' -e 'tell application "System Events" to tell process "Anki" to click menu item "Open Sidebar" of menu "Deckhand" of menu bar 1'
+python3 scripts/build.py sync -- --restart-anki
 ```
 
 Validate before claiming readiness:
@@ -71,4 +64,4 @@ rg -n "package_addon|ADDON_PACKAGE|FORBIDDEN|bin/" scripts tests
 
 ## Handoff Notes
 
-When re-entering a Deckhand development task, first check whether Anki is already running and whether `/Users/thoffman/Library/Application Support/Anki2/addons21/deckhand` reflects the repo. If the user asks to run the add-on, prefer the sync command above, then retry `open -a Anki` and the menu AppleScript separately if macOS reports a launch error after quitting Anki.
+When re-entering a Deckhand development task, first check whether Anki is already running and whether `/Users/thoffman/Library/Application Support/Anki2/addons21/deckhand` reflects the repo. If the user asks to run the add-on, prefer the sync command above, then retry `open -a Anki` separately if macOS reports a launch error after quitting Anki.
