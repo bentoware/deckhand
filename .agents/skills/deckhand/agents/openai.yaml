@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deckhand Dev"
+  short_description: "Develop and validate Deckhand add-on work"
+  default_prompt: "Use $deckhand to work on the Deckhand Anki add-on safely."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deckhand"
+  short_description: "Use Deckhand with Anki cards and decks"
+  default_prompt: "Use $deckhand to help me work with Deckhand in Anki."
