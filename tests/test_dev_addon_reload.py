@@ -121,7 +121,7 @@ class DevAddonReloadTests(unittest.TestCase):
         self.assertEqual(generated, generate_mcp_catalog.build_payload())
         names = [tool["name"] for tool in generated["tools"]]
         self.assertIn("anki.app.get_state", names)
-        self.assertIn("anki.context.get_current", names)
+        self.assertNotIn("anki.context.get_current", names)
         self.assertIn("anki.note.search", names)
         self.assertIn("anki.execute", names)
         self.assertNotIn("anki.review.answer_current", names)

@@ -848,7 +848,7 @@ mod tests {
             .any(|tool| tool.name == "anki.app.get_state"));
         assert!(inventory
             .iter()
-            .any(|tool| tool.name == "anki.context.get_current"));
+            .all(|tool| tool.name != "anki.context.get_current"));
         assert!(!inventory
             .iter()
             .any(|tool| tool.name == "anki.review.answer_current"));
@@ -1034,7 +1034,7 @@ mod tests {
             "params": {
                 "protocolVersion": "deckhand.ankiBridge.v1",
                 "pairingToken": "secret",
-                "tools": [{ "name": "anki.context.get_current" }]
+                "tools": [{ "name": "anki.app.get_state" }]
             }
         });
         assert!(validate_anki_bridge_hello(&valid).is_ok());
@@ -1044,7 +1044,7 @@ mod tests {
             "params": {
                 "protocolVersion": "deckhand.ankiBridge.v1",
                 "pairingToken": "wrong",
-                "tools": [{ "name": "anki.context.get_current" }]
+                "tools": [{ "name": "anki.app.get_state" }]
             }
         });
         assert!(validate_anki_bridge_hello(&invalid)
@@ -1065,7 +1065,7 @@ mod tests {
                 "params": {
                     "protocolVersion": "deckhand.ankiBridge.v1",
                     "tools": [
-                        { "name": "anki.context.get_current", "risk": "read" },
+                        { "name": "anki.app.get_state", "risk": "read" },
                         { "name": "anki.execute", "risk": "dev_exec" },
                         { "name": "other.exec.run", "risk": "system_exec" },
                         { "name": "other.exec.run", "risk": "system_exec" },
@@ -1080,12 +1080,12 @@ mod tests {
         assert_eq!(payload["source"], "anki_bridge");
         assert_eq!(payload["protocol"], "deckhand.ankiBridge.v1");
         assert_eq!(payload["tools"].as_array().unwrap().len(), 2);
-        assert_eq!(payload["tools"][0]["name"], "anki.context.get_current");
+        assert_eq!(payload["tools"][0]["name"], "anki.app.get_state");
         assert_eq!(payload["tools"][1]["name"], "anki.execute");
 
         let mcp_payload = hub.mcp_tools_list_payload().await;
         assert_eq!(mcp_payload["tools"].as_array().unwrap().len(), 2);
-        assert_eq!(mcp_payload["tools"][0]["name"], "anki.context.get_current");
+        assert_eq!(mcp_payload["tools"][0]["name"], "anki.app.get_state");
         assert_eq!(mcp_payload["tools"][1]["name"], "anki.execute");
     }
 

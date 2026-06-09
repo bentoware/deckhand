@@ -48,7 +48,7 @@ class AddonShellTests(unittest.TestCase):
 
         self.assertEqual(payload["paths"], ["safe_bridge"])
         self.assertIn("anki.app.get_state", names)
-        self.assertIn("anki.context.get_current", names)
+        self.assertNotIn("anki.context.get_current", names)
         self.assertIn("anki.note.search", names)
         self.assertIn("anki.execute", names)
         self.assertNotIn("anki.review.answer_current", names)
@@ -445,7 +445,7 @@ class AddonShellTests(unittest.TestCase):
                 "collectionHash": "collection-1",
                 "capabilities": {"paths": ["safe_bridge"]},
                 "tools": [
-                    {"name": "anki.context.get_current", "risk": "read"},
+                    {"name": "anki.app.get_state", "risk": "read"},
                     {"name": "anki.execute", "risk": "dev_exec"},
                     {"name": "other.sidebar.show_status", "risk": "ui"},
                     {"name": "other.exec.run", "risk": "system_exec"},
@@ -459,7 +459,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertNotIn("protocol", payload["params"])
         self.assertEqual(payload["params"]["pairingToken"], "pairing-token")
         self.assertEqual(len(payload["params"]["tools"]), 2)
-        self.assertEqual(payload["params"]["tools"][0]["name"], "anki.context.get_current")
+        self.assertEqual(payload["params"]["tools"][0]["name"], "anki.app.get_state")
         self.assertEqual(payload["params"]["tools"][1]["name"], "anki.execute")
         self.assertEqual(payload["params"]["capabilities"]["paths"], ["safe_bridge"])
         self.assertEqual(payload["params"]["profileHash"], "profile-1")
@@ -467,7 +467,7 @@ class AddonShellTests(unittest.TestCase):
 
     def test_bridge_hello_uses_companion_token_as_pairing_fallback(self):
         payload = bridge_transport.bridge_hello_payload(
-            {"tools": [{"name": "anki.context.get_current"}]},
+            {"tools": [{"name": "anki.app.get_state"}]},
             {"DECKHAND_COMPANION_TOKEN": "companion-token"},
         )
 
@@ -542,7 +542,7 @@ class AddonShellTests(unittest.TestCase):
         }
 
         self.assertIn("anki.app.get_state", implemented)
-        self.assertIn("anki.context.get_current", implemented)
+        self.assertNotIn("anki.context.get_current", implemented)
         self.assertIn("anki.note.search", implemented)
         self.assertIn("anki.note.get", implemented)
         self.assertIn("anki.note.update_fields", implemented)

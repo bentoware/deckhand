@@ -204,9 +204,6 @@ def _register_default_tools() -> None:
         "anki.app.get_state", lambda _args: context_tools.current_context(_mw())
     )
     _executor.register(
-        "anki.context.get_current", lambda _args: context_tools.current_context(_mw())
-    )
-    _executor.register(
         "anki.context.get_profile", lambda _args: context_tools.current_profile(_mw())
     )
     _executor.register(

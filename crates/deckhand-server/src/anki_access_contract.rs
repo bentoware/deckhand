@@ -43,7 +43,7 @@ mod tests {
     fn tool_call_fixture_uses_anki_namespace() {
         let fixture = tool_call_fixture();
         assert_eq!(fixture["method"], "tool.call");
-        assert_eq!(fixture["params"]["tool"], "anki.context.get_current");
+        assert_eq!(fixture["params"]["tool"], "anki.app.get_state");
         assert!(fixture["params"].get("approval").is_none());
     }
 }

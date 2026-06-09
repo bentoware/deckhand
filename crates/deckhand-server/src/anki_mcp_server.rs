@@ -185,7 +185,6 @@ mod tests {
         assert!(create.input_schema["properties"].get("approved").is_none());
         assert!(execute.input_schema["properties"].get("approved").is_none());
         assert!(is_anki_mcp_tool("anki.app.get_state"));
-        assert!(is_anki_mcp_tool("anki.context.get_current"));
         assert!(is_anki_mcp_tool("anki.execute"));
         assert!(!is_anki_mcp_tool("other.exec.run"));
     }
@@ -200,7 +199,8 @@ mod tests {
             .collect::<std::collections::BTreeSet<_>>();
 
         assert!(models.len() > 20);
-        assert!(names.contains("anki.context.get_current"));
+        assert!(names.contains("anki.app.get_state"));
+        assert!(!names.contains("anki.context.get_current"));
         assert!(names.contains("anki.note.search"));
         assert!(names.contains("anki.execute"));
 

@@ -24,25 +24,6 @@
     {
       "annotations": {
         "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": false,
-        "readOnlyHint": true
-      },
-      "description": "Return current reviewer/editor/browser context.",
-      "input_schema": {
-        "additionalProperties": true,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "name": "anki.context.get_current",
-      "risk": "read",
-      "status": "implemented",
-      "title": "Get Current"
-    },
-    {
-      "annotations": {
-        "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false,
         "readOnlyHint": true

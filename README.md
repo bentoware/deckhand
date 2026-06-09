@@ -72,7 +72,7 @@ Useful overrides:
 
 ```sh
 DECKHAND_SAFE_BRIDGE_URL=ws://127.0.0.1:18765/ws/anki
-DECKHAND_MCP_TOOL_ALLOWLIST=anki.execute,anki.context.get_current
+DECKHAND_MCP_TOOL_ALLOWLIST=anki.execute,anki.app.get_state
 DECKHAND_MCP_TOOL_TIMEOUT_SECONDS=120
 DECKHAND_ANKI_PROGRAM_FILES="$HOME/Library/Application Support/AnkiProgramFiles"
 ```

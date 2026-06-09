@@ -137,7 +137,6 @@ WEBENGINE_TARGET_NOTE = " If no target is supplied, Deckhand defaults to Anki's 
 
 COMMAND_CATALOG: tuple[CommandCatalogEntry, ...] = (
     _entry("anki.app.get_state", "read", "Return current app, reviewer, editor, browser, deck, and profile state.", status="implemented"),
-    _entry("anki.context.get_current", "read", "Return current reviewer/editor/browser context.", status="implemented"),
     _entry("anki.context.get_profile", "read", "Return active profile, collection, scheduler, and add-on runtime identity.", status="implemented"),
     _entry("anki.note.search", "read", "Search notes and return note identifiers.", status="implemented", input_schema=_schema({"query": QUERY, "limit": {"type": "integer", "minimum": 1}}, ["query"])),
     _entry("anki.note.get", "read", "Read fields, tags, deck, and model metadata for one note.", status="implemented", input_schema=_schema({"noteId": NOTE_ID}, ["noteId"])),
