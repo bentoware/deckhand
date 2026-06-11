@@ -133,8 +133,18 @@ def ensure_running(logger=None, *, force: bool = False) -> dict[str, Any]:
     return _status(state, detail, owned=True, pid=process.pid, binary=binary, health=health)
 
 
+def ensure_executable(binary: Path) -> None:
+    """Restore the exec bit: .ankiaddon zips are extracted without permissions."""
+    try:
+        if not os.access(binary, os.X_OK):
+            os.chmod(binary, 0o755)
+    except OSError:
+        pass
+
+
 def start_companion(binary: Path, logger=None) -> subprocess.Popen:
     global _process, _started_pid
+    ensure_executable(binary)
     log_dir = Path(os.environ.get("DECKHAND_COMPANION_LOG_DIR", str(default_log_dir()))).expanduser()
     log_dir.mkdir(parents=True, exist_ok=True)
     stdout = (log_dir / "companion.stdout.log").open("ab")

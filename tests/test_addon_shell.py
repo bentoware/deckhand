@@ -280,6 +280,19 @@ class AddonShellTests(unittest.TestCase):
         self.assertEqual(snapshot["ankiTools"], ["anki_run_python"])
         self.assertEqual(snapshot["toolCount"], 1)
 
+    def test_companion_restores_executable_bit_before_launch(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            binary = Path(temp_dir) / "deckhand-server"
+            binary.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            binary.chmod(0o644)
+            self.assertFalse(os.access(binary, os.X_OK))
+
+            companion.ensure_executable(binary)
+
+            self.assertTrue(os.access(binary, os.X_OK))
+        source = (ADDON / "deckhand" / "companion.py").read_text(encoding="utf-8")
+        self.assertIn("ensure_executable(binary)", source[source.index("def start_companion") :])
+
     def test_companion_uses_bundled_server_path_for_platform(self):
         path = companion.bundled_server_path()
 

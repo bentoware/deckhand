@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Catalog and tool surface checks
+        run: |
+          python scripts/build.py check-catalog
+          python scripts/check_tool_surface.py
+      - name: Python tests
+        run: python -m unittest discover -s tests
+      - name: Rust tests
+        run: cargo test -p deckhand-server -- --test-threads=1
+
+  build-server:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            tag: macos-aarch64
+          - runner: macos-14
+            tag: macos-x86_64
+            target: x86_64-apple-darwin
+          - runner: ubuntu-22.04
+            tag: linux-x86_64
+          - runner: windows-2022
+            tag: windows-x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add cross-compile target
+        if: matrix.target != ''
+        run: rustup target add ${{ matrix.target }}
+      - name: Build companion server
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.target }}" ]; then
+            cargo build --release -p deckhand-server --target "${{ matrix.target }}"
+            SRC="target/${{ matrix.target }}/release"
+          else
+            cargo build --release -p deckhand-server
+            SRC="target/release"
+          fi
+          BIN="deckhand-server"
+          if [[ "${{ matrix.tag }}" == windows-* ]]; then BIN="deckhand-server.exe"; fi
+          mkdir -p "out/${{ matrix.tag }}"
+          cp "$SRC/$BIN" "out/${{ matrix.tag }}/$BIN"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-${{ matrix.tag }}
+          path: out
+          if-no-files-found: error
+
+  package:
+    needs: build-server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: bentoware/deckhand-skills
+          path: deckhand-skills-checkout
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: server-*
+          path: bins
+          merge-multiple: true
+      - name: Read add-on version
+        id: version
+        run: |
+          VERSION=$(python -c "from pathlib import Path; import re; print(re.search(r'\"([^\"]+)\"', Path('addon/deckhand/deckhand/version.py').read_text()).group(1))")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Verify tag matches version.py
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          test "$TAG" = "v${{ steps.version.outputs.version }}" || {
+            echo "tag $TAG does not match version.py (${{ steps.version.outputs.version }})"; exit 1; }
+      - name: Verify release notes exist
+        if: startsWith(github.ref, 'refs/tags/')
+        run: test -f "releases/Release-${{ steps.version.outputs.version }}.md"
+      - name: Package add-on
+        env:
+          DECKHAND_BUNDLED_SKILLS_DIRS: ${{ github.workspace }}/skills:${{ github.workspace }}/deckhand-skills-checkout/skills
+        run: |
+          chmod +x bins/*/deckhand-server 2>/dev/null || true
+          python scripts/build.py package-addon --skip-build --output dist/deckhand.ankiaddon \
+            --companion-binary macos-aarch64=bins/macos-aarch64/deckhand-server \
+            --companion-binary macos-x86_64=bins/macos-x86_64/deckhand-server \
+            --companion-binary linux-x86_64=bins/linux-x86_64/deckhand-server \
+            --companion-binary windows-x86_64=bins/windows-x86_64/deckhand-server.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deckhand-ankiaddon
+          path: dist/deckhand.ankiaddon
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release upload "v$VERSION" dist/deckhand.ankiaddon --clobber
+          else
+            gh release create "v$VERSION" dist/deckhand.ankiaddon \
+              --title "Deckhand $VERSION" \
+              --notes-file "releases/Release-$VERSION.md"
+          fi
