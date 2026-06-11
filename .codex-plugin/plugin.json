@@ -1,7 +1,7 @@
 {
   "name": "deckhand",
   "version": "0.1.0",
-  "description": "Deckhand lets agents inspect and operate inside the live Anki Desktop runtime through guarded MCP tools.",
+  "description": "Deckhand connects your AI assistant to your live Anki collection so it can see your decks, turn your sources into well-made cited cards, and help you fix weak ones — with you approving every change.",
   "author": {
     "name": "Bentoware",
     "url": "https://github.com/bentoware/deckhand"
@@ -22,16 +22,16 @@
   "skills": "skills",
   "interface": {
     "displayName": "Deckhand",
-    "shortDescription": "Operate inside live Anki",
-    "longDescription": "Use Deckhand to inspect Anki decks, notes, cards, browser/editor state, media, and guarded MCP tools from inside the live Anki Desktop runtime.",
+    "shortDescription": "Your AI study partner inside Anki",
+    "longDescription": "Deckhand lets your assistant see your real Anki collection — what's due, what's leeching, what that half-finished note says — and help you act on it. Turn PDFs, lectures, and notes into atomic, cited flashcards; rescue weak cards; clean up tags and decks. Every change is previewed before it touches your collection.",
     "developerName": "Bentoware",
     "category": "Productivity",
     "capabilities": ["Read", "Write"],
     "websiteURL": "https://github.com/bentoware/deckhand",
     "defaultPrompt": [
-      "Inspect my current Anki review context",
-      "Summarize the selected notes in Anki Browser",
-      "Check the Deckhand add-on runtime status"
+      "Turn this PDF into well-cited Anki cards",
+      "Find my leeches and help me rewrite them",
+      "What's due in my decks today?"
     ],
     "brandColor": "#0f766e"
   }

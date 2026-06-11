@@ -1,4 +1,4 @@
 interface:
   display_name: "Deckhand"
-  short_description: "Use Deckhand for high-quality Anki cards"
-  default_prompt: "Use $deckhand to inspect live Anki context, create source-grounded cards, or improve weak cards safely."
+  short_description: "Make, fix, and organize Anki cards the right way"
+  default_prompt: "Use $deckhand to turn my source material into well-cited Anki cards, rescue my weak cards, or tidy up my decks — previewing changes before applying them."
