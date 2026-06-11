@@ -8,7 +8,8 @@ from .command_catalog import command_catalog
 from .state_paths import work_root
 
 VISIBILITY_PATH = work_root() / "tool-visibility.json"
-MINIMAL_TEMPLATE_TOOLS = frozenset({"anki_run_python", "anki_runtime_info"})
+MINIMAL_TEMPLATE_TOOLS = frozenset({"anki_backup_create", "anki_run_python", "anki_runtime_info"})
+LEGACY_MINIMAL_TEMPLATE_TOOLS = frozenset({"anki_run_python", "anki_runtime_info"})
 TEMPLATE_ALL = "all"
 TEMPLATE_RUNTIME_WEBENGINE = "runtime_webengine"
 TEMPLATE_NONE = "none"
@@ -32,7 +33,7 @@ def visible_tool_names(all_names: Iterable[str] | None = None) -> list[str]:
     configured = settings.get("visibleTools")
     if not isinstance(configured, list):
         return names
-    visible = {str(name) for name in configured}
+    visible = _normalize_visible_tools({str(name) for name in configured})
     return [name for name in names if name in visible]
 
 
@@ -72,3 +73,10 @@ def _read_settings() -> dict[str, object]:
     except (OSError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _normalize_visible_tools(visible: set[str]) -> set[str]:
+    non_webengine = {name for name in visible if not name.startswith("anki_webengine_")}
+    if non_webengine == LEGACY_MINIMAL_TEMPLATE_TOOLS:
+        return visible | MINIMAL_TEMPLATE_TOOLS
+    return visible

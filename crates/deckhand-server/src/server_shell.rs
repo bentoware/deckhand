@@ -27,6 +27,9 @@ const MCP_REQUIRE_TOKEN_ENV: &str = "DECKHAND_MCP_REQUIRE_TOKEN";
 const MCP_TOOL_TIMEOUT_ENV: &str = "DECKHAND_MCP_TOOL_TIMEOUT_SECONDS";
 const STATE_ROOT_ENV: &str = "DECKHAND_ANKI_EXTENSION_STATE_ROOT";
 const DEFAULT_MCP_TOOL_TIMEOUT_SECONDS: u64 = 120;
+const BACKUP_TOOL: &str = "anki_backup_create";
+const RUN_PYTHON_TOOL: &str = "anki_run_python";
+const RUNTIME_INFO_TOOL: &str = "anki_runtime_info";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AdapterStatus {
@@ -313,13 +316,27 @@ fn read_visible_tool_names(path: &Path) -> Option<HashSet<String>> {
     let payload = std::fs::read_to_string(path).ok()?;
     let value = serde_json::from_str::<Value>(&payload).ok()?;
     let tools = value.get("visibleTools")?.as_array()?;
-    Some(
+    Some(normalize_visible_tool_names(
         tools
             .iter()
             .filter_map(Value::as_str)
             .map(ToString::to_string)
             .collect(),
-    )
+    ))
+}
+
+fn normalize_visible_tool_names(mut tools: HashSet<String>) -> HashSet<String> {
+    let legacy_minimal = tools.contains(RUN_PYTHON_TOOL)
+        && tools.contains(RUNTIME_INFO_TOOL)
+        && tools.iter().all(|name| {
+            name == RUN_PYTHON_TOOL
+                || name == RUNTIME_INFO_TOOL
+                || name.starts_with("anki_webengine_")
+        });
+    if legacy_minimal {
+        tools.insert(BACKUP_TOOL.to_string());
+    }
+    tools
 }
 
 pub fn status_snapshot() -> ServerStatus {
@@ -1000,7 +1017,7 @@ mod tests {
         ));
         std::fs::write(
             &path,
-            r#"{"visibleTools":["anki_run_python","anki_runtime_info","anki_webengine_status","anki_unknown"]}"#,
+            r#"{"visibleTools":["anki_backup_create","anki_run_python","anki_runtime_info","anki_webengine_status","anki_unknown"]}"#,
         )
         .unwrap();
 
@@ -1012,7 +1029,38 @@ mod tests {
 
         assert_eq!(
             names,
-            ["anki_run_python", "anki_runtime_info"]
+            ["anki_backup_create", "anki_run_python", "anki_runtime_info"]
+                .into_iter()
+                .collect()
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn mcp_inventory_upgrades_legacy_runtime_visibility() {
+        let path = std::env::temp_dir().join(format!(
+            "deckhand-legacy-tool-visibility-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(
+            &path,
+            r#"{"visibleTools":["anki_run_python","anki_runtime_info"]}"#,
+        )
+        .unwrap();
+
+        let inventory = mcp_tool_inventory_for_visibility_path(&path);
+        let names = inventory
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(
+            names,
+            ["anki_backup_create", "anki_run_python", "anki_runtime_info"]
                 .into_iter()
                 .collect()
         );
@@ -1031,7 +1079,7 @@ mod tests {
         ));
         std::fs::write(
             &path,
-            r#"{"visibleTools":["anki_run_python","anki_runtime_info","anki_webengine_status"]}"#,
+            r#"{"visibleTools":["anki_backup_create","anki_run_python","anki_runtime_info","anki_webengine_status"]}"#,
         )
         .unwrap();
 
@@ -1040,6 +1088,7 @@ mod tests {
                 "params": {
                     "tools": [
                         { "name": "anki_app_get_state" },
+                        { "name": "anki_backup_create" },
                         { "name": "anki_run_python" },
                         { "name": "anki_runtime_info" },
                         { "name": "anki_webengine_status" },
@@ -1058,7 +1107,7 @@ mod tests {
 
         assert_eq!(
             names,
-            ["anki_run_python", "anki_runtime_info"]
+            ["anki_backup_create", "anki_run_python", "anki_runtime_info"]
                 .into_iter()
                 .collect()
         );
@@ -1281,6 +1330,7 @@ mod tests {
                     "protocolVersion": "deckhand.ankiBridge.v1",
                     "tools": [
                         { "name": "anki_app_get_state", "risk": "read" },
+                        { "name": "anki_backup_create", "risk": "mutation" },
                         { "name": "anki_run_python", "risk": "dev_exec" },
                         { "name": "anki_runtime_info", "risk": "read" },
                         { "name": "anki_webengine_status", "risk": "read" },
@@ -1296,14 +1346,16 @@ mod tests {
         let payload = hub.tools_payload().await;
         assert_eq!(payload["source"], "anki_bridge");
         assert_eq!(payload["protocol"], "deckhand.ankiBridge.v1");
-        assert_eq!(payload["tools"].as_array().unwrap().len(), 2);
-        assert_eq!(payload["tools"][0]["name"], "anki_run_python");
-        assert_eq!(payload["tools"][1]["name"], "anki_runtime_info");
+        assert_eq!(payload["tools"].as_array().unwrap().len(), 3);
+        assert_eq!(payload["tools"][0]["name"], "anki_backup_create");
+        assert_eq!(payload["tools"][1]["name"], "anki_run_python");
+        assert_eq!(payload["tools"][2]["name"], "anki_runtime_info");
 
         let mcp_payload = hub.mcp_tools_list_payload().await;
-        assert_eq!(mcp_payload["tools"].as_array().unwrap().len(), 2);
-        assert_eq!(mcp_payload["tools"][0]["name"], "anki_run_python");
-        assert_eq!(mcp_payload["tools"][1]["name"], "anki_runtime_info");
+        assert_eq!(mcp_payload["tools"].as_array().unwrap().len(), 3);
+        assert_eq!(mcp_payload["tools"][0]["name"], "anki_backup_create");
+        assert_eq!(mcp_payload["tools"][1]["name"], "anki_run_python");
+        assert_eq!(mcp_payload["tools"][2]["name"], "anki_runtime_info");
 
         std::env::remove_var(STATE_ROOT_ENV);
         let _ = std::fs::remove_dir_all(state_root);

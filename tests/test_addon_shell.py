@@ -106,12 +106,24 @@ class AddonShellTests(unittest.TestCase):
                 payload = anki_bridge_capability_payload()
 
         names = {tool["name"] for tool in payload["tools"]}
+        self.assertIn("anki_backup_create", names)
         self.assertIn("anki_run_python", names)
         self.assertIn("anki_runtime_info", names)
         self.assertNotIn("anki_note_search", names)
         self.assertNotIn("anki_card_preview", names)
         self.assertNotIn("anki_deck_list", names)
-        self.assertEqual(names, {"anki_run_python", "anki_runtime_info"})
+        self.assertEqual(names, {"anki_backup_create", "anki_run_python", "anki_runtime_info"})
+
+    def test_tool_visibility_upgrades_legacy_runtime_template(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "tool-visibility.json"
+            path.write_text('{"visibleTools":["anki_run_python","anki_runtime_info"]}', encoding="utf-8")
+            with mock.patch.object(tool_visibility, "VISIBILITY_PATH", path):
+                visible = tool_visibility.visible_tool_names(
+                    ["anki_backup_create", "anki_deck_list", "anki_run_python", "anki_runtime_info"]
+                )
+
+        self.assertEqual(visible, ["anki_backup_create", "anki_run_python", "anki_runtime_info"])
 
     def test_runtime_info_reports_compact_environment_context(self):
         collection = SimpleNamespace(
@@ -1180,8 +1192,11 @@ class AddonShellTests(unittest.TestCase):
             self.assertTrue(entry.description, entry.name)
 
         entries = {entry.name: entry for entry in command_catalog()}
+        backup_description = entries["anki_backup_create"].description
         run_python_description = entries["anki_run_python"].description
         runtime_description = entries["anki_runtime_info"].description
+        self.assertIn("Use before major collection operations", backup_description)
+        self.assertIn("bulk edits, deletes, imports, template changes, or scheduling changes", backup_description)
         self.assertIn("Prefer Anki APIs via mw/aqt", run_python_description)
         self.assertIn("do not edit the collection SQLite database or media folder directly", run_python_description)
         self.assertIn("main Qt thread", run_python_description)

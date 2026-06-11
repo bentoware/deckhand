@@ -17,7 +17,7 @@ use std::{
 use crate::server_shell::{bridge_hub, mcp_tool_inventory, BridgeHub, McpTool};
 
 pub const MCP_SERVER_NAME: &str = "deckhand";
-pub const MCP_SERVER_INSTRUCTIONS: &str = "Deckhand controls a live, running Anki instance with tools named mcp__deckhand__*. Use anki_run_python for anything involving cards, decks, notes, reviews, quizzes, stats, add-ons, or inspecting and driving Anki's UI; it runs Python inside Anki with mw/aqt access and includes deckhand.web for screenshots, clicking, and reading rendered cards. Use anki_runtime_info for a quick Anki status or health check.";
+pub const MCP_SERVER_INSTRUCTIONS: &str = "Deckhand controls a live, running Anki instance with tools named mcp__deckhand__*. Use anki_runtime_info for a quick Anki status or health check. Use anki_backup_create before major collection operations such as bulk edits, deletes, imports, template changes, scheduling changes, or other major mutations. Use anki_run_python for anything involving cards, decks, notes, reviews, quizzes, stats, add-ons, or inspecting and driving Anki's UI; it runs Python inside Anki with mw/aqt access and includes deckhand.web for screenshots, clicking, and reading rendered cards.";
 
 pub fn tools_list_payload(tools: &[McpTool]) -> Value {
     json!({
@@ -314,6 +314,10 @@ mod tests {
         assert_eq!(info.server_info.name, MCP_SERVER_NAME);
         assert!(info.capabilities.tools.is_some());
         assert_eq!(info.instructions.as_deref(), Some(MCP_SERVER_INSTRUCTIONS));
+        assert!(MCP_SERVER_INSTRUCTIONS.contains("anki_backup_create"));
+        assert!(MCP_SERVER_INSTRUCTIONS.contains("before major collection operations"));
+        assert!(MCP_SERVER_INSTRUCTIONS
+            .contains("bulk edits, deletes, imports, template changes, scheduling changes"));
     }
 
     #[tokio::test]

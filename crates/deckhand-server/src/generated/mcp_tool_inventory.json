@@ -908,7 +908,7 @@
         "openWorldHint": false,
         "readOnlyHint": false
       },
-      "description": "Create a native Anki no-media collection backup in a required local folder using Anki's backup API. Returns backup path metadata only.",
+      "description": "Create a native Anki no-media collection backup in a required local folder using Anki's backup API. Use before major collection operations such as bulk edits, deletes, imports, template changes, or scheduling changes. Returns backup path metadata only.",
       "input_schema": {
         "additionalProperties": true,
         "properties": {
