@@ -40,7 +40,7 @@ def manifest(endpoint: str | None = None, token: str | None = None) -> dict[str,
         "display_name": "Deckhand for Anki",
         "version": ADDON_VERSION,
         "description": "Connect Claude to your local Anki collection through the Deckhand add-on.",
-        "author": {"name": "Bentoware", "url": "https://github.com/bentoware/deckhand"},
+        "author": {"name": "Bentoware", "url": "https://deckhandforanki.com"},
         "server": {
             "type": "node",
             "entry_point": PROXY_FILENAME,

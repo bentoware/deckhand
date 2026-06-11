@@ -19,7 +19,7 @@
     "runtime",
     "agent"
   ],
-  "skills": "../skills/",
+  "skills": "skills",
   "interface": {
     "displayName": "Deckhand",
     "shortDescription": "Operate inside live Anki",
