@@ -1,112 +1,83 @@
-# Deckhand
+<p align="center">
+  <img src="docs/assets/deckhand-hero.jpg" alt="Deckhand — a young sailor at the ship's wheel, spyglass over his shoulder, a glowing star-box on the chart table" width="100%" />
+</p>
 
-Resourceful. Loyal. Always on watch.
+<h1 align="center">Deckhand</h1>
 
-Deckhand is an open source Anki add-on that lets an agent operate from inside the live Anki runtime. It can inspect the current collection, surface context, run guarded tools, and help you chart changes without pretending Anki is just a pile of files on disk.
+<p align="center"><em>Resourceful. Loyal. Always on watch.</em></p>
 
-> One tool. Infinite possibilities.
+<p align="center">
+  <a href="https://github.com/bentoware/deckhand/releases/latest"><img src="https://img.shields.io/github/v/release/bentoware/deckhand?label=release&color=2b6cb0" alt="Latest release" /></a>
+  <a href="https://github.com/bentoware/deckhand/actions/workflows/release.yml"><img src="https://github.com/bentoware/deckhand/actions/workflows/release.yml/badge.svg" alt="Build status" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue" alt="License" /></a>
+</p>
 
-## What It Is
+Deckhand is an Anki add-on that gives your AI assistant a pair of careful hands inside your collection. Claude, Codex, or any MCP client can finally *see* your decks — what's due, what's leeching, what that half-finished note actually says — and help you fix it, with you at the wheel the whole time.
 
-Deckhand lives inside Anki Desktop as a native add-on and pairs with a small Rust companion process. The add-on handles Anki-safe access to decks, notes, cards, browser/editor context, media, and UI surfaces. The companion exposes those capabilities over a local bridge so external agents can automate, inspect, and operate with explicit guardrails.
+Everything runs on your computer. No cloud, no account, no sync service. Just your Anki, your assistant, and a small crew member keeping watch between them.
 
-The mascot vibe is intentional: a clever deckhand below deck, keeping watch on the runtime while you steer.
+## The problem with AI and Anki
 
-## Publishing And License
+If you've ever tried to get an AI to help with your flashcards, you know the drill:
 
-Deckhand is licensed under `AGPL-3.0-or-later`.
+- **Your assistant is blind.** You paste cards out, paste suggestions back, and lose an evening to clipboard archaeology.
+- **Making good cards is slow.** That 40-page PDF wants to be 60 atomic, cited cards. By hand, it'll stay a PDF.
+- **Bulk fixes are terrifying.** Retagging 800 notes or repairing a mangled field across a deck is exactly the kind of job you want help with — and exactly the kind you don't want done blind.
+- **The existing tooling is for tinkerers.** Most bridges assume you enjoy editing JSON config files at midnight.
 
-AnkiWeb add-ons are expected to use AGPLv3 or an AGPL-compatible license because they extend Anki Desktop. Keeping this repository public, licensed, and self-contained makes the AnkiWeb publication path clearer and makes the source auditable for users.
+Deckhand's answer: put the assistant *inside* the live Anki runtime, behind a guarded, standard MCP surface — then make connecting it something a normal person can do in under a minute.
 
-## Repository Shape
+## What you get
 
-```text
-addon/deckhand/              Anki add-on package root
-addon/deckhand/deckhand/     Python add-on runtime
-crates/deckhand-server/      Rust companion process
-scripts/                     Build, package, sync, and development helpers
-tests/                       Python and build-system regression tests
-```
+- **An assistant that sees your real deck.** Live context: current card, browser selection, editor fields, due counts, deck stats. No exports, no stale snapshots.
+- **One-minute setup, no terminal required.** A welcome dialog on first launch, copy-paste recipes for every major client — and for Claude Desktop, you literally **drag a card out of Anki and drop it into Claude**. That's the whole install.
+- **A crew of study skills.** Bundled workflows teach your assistant proven Anki craft: PDF→cards with citations, language decks, leech rescue, card polish, weak-card triage. One click installs them for Claude Code or Codex; they quietly stay current with the [deckhand-skills](https://github.com/bentoware/deckhand-skills) repo and never overwrite your edits.
+- **Built-in troubleshooting.** A Status tab that tests every link in the chain and tells you the *one* thing to fix. A diagnostics button that copies everything a bug report needs.
+- **Guardrails you can see.** Lean default tool surface, read-before-write design, risky tools flagged with standard MCP annotations, and an optional access token if loopback-only isn't enough for you.
 
-## Build
+<p align="center">
+  <img src="docs/assets/deckhand-crew-strip.jpg" alt="The Deckhand crew — an old sea captain, a young navigator with a notebook, a cat in a sailor's collar, and a seagull making off with a flashcard" width="100%" />
+</p>
 
-```sh
-make check
-make build
-make package-addon
-```
+## Quickstart
 
-`make check` verifies the generated tool inventory, runs Python unit tests, and runs Rust tests. `make package-addon` writes `dist/deckhand.ankiaddon` with the platform companion binary bundled at `bin/<platform>/deckhand-server`.
+1. **Install the add-on** — grab `deckhand.ankiaddon` from the [latest release](https://github.com/bentoware/deckhand/releases/latest), then in Anki: *Tools → Add-ons → Install from file…*
+2. **Restart Anki.** The welcome dialog takes it from there. (Missed it? *Deckhand → Onboarding* replays it anytime.)
+3. **Connect your assistant** from *Deckhand → Management → Connect*:
+   - **Claude Desktop** — drag the `Deckhand.mcpb` chip straight into the Claude window and click Install. Done.
+   - **Claude Code** — copy the one-liner: `claude mcp add --transport http deckhand http://127.0.0.1:28765/mcp`
+   - **Codex CLI** — copy the `config.toml` block.
+   - **Anything else** that speaks Streamable HTTP MCP — paste the endpoint URL.
+4. **Say something.** "What's due today?" "Turn this PDF into cards." "Find my leeches and tell me why they keep sinking."
 
-## Local Development
+## On watch, not in charge
 
-```sh
-python3 scripts/build.py sync -- --restart-anki
-```
+Deckhand is built around a simple idea: *the assistant crews the ship; you captain it.*
 
-The sync command rebuilds the local tool inventory, builds the companion in debug mode, copies the add-on into Anki's `addons21` folder, and can restart Anki for a fresh smoke test.
+- Runs entirely on **loopback** — nothing leaves your machine.
+- The default MCP surface is **deliberately small**; the full tool inventory is opt-in from the developer panel.
+- Mutating and destructive tools carry **standard MCP annotations**, so well-behaved clients confirm before acting.
+- Want a lock on the hatch? Flip on **"Require access token"** in the Server tab — the Claude Desktop extension carries the key automatically.
+- Updates **ask first**. Skills updates never touch anything you've hand-edited.
 
-To debug the MCP server with the official MCP Inspector:
-
-```sh
-make inspect-mcp
-```
-
-Start Anki first so the Deckhand add-on owns the companion server, then run the Inspector against the same Streamable HTTP MCP endpoint Codex uses: `http://127.0.0.1:28765/mcp`.
-
-Pass Inspector options after `--`:
-
-```sh
-python3 scripts/build.py inspect-mcp -- --client-port 8080
-CLIENT_PORT=8080 SERVER_PORT=9000 make inspect-mcp
-```
-
-Override the inspected endpoint when needed:
-
-```sh
-python3 scripts/build.py inspect-mcp --url http://127.0.0.1:18888/mcp
-DECKHAND_MCP_URL=http://127.0.0.1:18888/mcp make inspect-mcp
-```
-
-Useful overrides:
+## For developers
 
 ```sh
-DECKHAND_SAFE_BRIDGE_URL=ws://127.0.0.1:28765/ws/anki
-DECKHAND_MCP_TOOL_ALLOWLIST=anki_run_python,anki_app_get_state
-DECKHAND_MCP_TOOL_TIMEOUT_SECONDS=120
-DECKHAND_ANKI_PROGRAM_FILES="$HOME/Library/Application Support/AnkiProgramFiles"
+make check          # generated-inventory check, Python tests, Rust tests
+make build          # debug build of the Rust companion
+make package-addon  # dist/deckhand.ankiaddon with the companion bundled
+python3 scripts/build.py sync -- --restart-anki   # live-develop against your local Anki
+make inspect-mcp    # MCP Inspector against the live endpoint
 ```
 
-Rendered Anki UI inspection goes through `anki_run_python` with the bundled Python SDK:
+The add-on (Python, `addon/deckhand/`) handles Anki-safe access to decks, notes, cards, media, and UI context. A small Rust companion (`crates/deckhand-server/`) exposes it all as a Streamable HTTP MCP server on `http://127.0.0.1:28765/mcp`. Rendered-UI work goes through `anki_run_python` and the bundled `deckhand.web` SDK (start Anki with `QTWEBENGINE_REMOTE_DEBUGGING=9222` or click "Restart Anki for Deckhand").
 
-```python
-import inspect
-import deckhand.web as web
-result = {"doc": inspect.getdoc(web), "members": [x for x in dir(web) if not x.startswith("_")]}
-```
+Releases are automated: bump `version.py` + `manifest.json`, write `releases/Release-<version>.md`, push a `v*` tag — CI builds the four-platform package, the `.mcpb`, and publishes the release. See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
-Launch Anki with Qt WebEngine remote debugging when using `deckhand.web` page helpers:
+## License
 
-```sh
-QTWEBENGINE_REMOTE_DEBUGGING=9222 open -a Anki
-```
+[AGPL-3.0-or-later](LICENSE) — the license AnkiWeb expects of add-ons that extend Anki Desktop, and the one that keeps this hull inspectable from stem to stern. Dependency notes live in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-Browser-sized data should be written through SDK `file=` arguments or `anki_run_python`'s `resultFilePath`; large inline results are explicitly omitted with envelope metadata instead of silently truncated.
+---
 
-## Local Security
-
-The companion binds to loopback by default. When the Anki add-on starts it, the add-on generates an ephemeral `DECKHAND_COMPANION_TOKEN` and passes it to the Rust process. The internal `/ws/anki` bridge requires that token through `Authorization: Bearer <token>`, `X-Deckhand-Token`, or a WebSocket `token` query parameter.
-
-The canonical `/mcp` endpoint and `/healthz`/`/status` remain usable on loopback so Codex and MCP Inspector can connect without a token-sharing setup. `/mcp` exposes a lean user-facing Anki core; bridge transport, smoke, recursive call helpers, template/import/export maintenance tools, and low-level dev probes stay internal or omitted. Deckhand exposes standard MCP tool annotations, and confirmation prompts for risky tools are handled by the MCP client.
-
-## Package Boundary
-
-The `.ankiaddon` archive must not include private backend code, `node_modules`, unrelated product assets, or generated build products outside the bundled companion binary. The build runner enforces this boundary before writing a package.
-
-## Third Party Notices
-
-See `THIRD_PARTY_NOTICES.md` for dependency and licensing notes. The add-on code and Rust companion are prepared for open source distribution under AGPL-compatible terms, but do one final dependency/license review before first public release.
-
-## A Tiny Ship's Log
-
-Deckhand does not promise magic. It promises better watchkeeping: clear standard MCP tools, visible runtime context, and fewer blind edits in the dark.
+<p align="center"><em>Deckhand doesn't promise magic. It promises better watchkeeping:<br/>clear tools, visible context, and no more blind edits in the dark.</em></p>
