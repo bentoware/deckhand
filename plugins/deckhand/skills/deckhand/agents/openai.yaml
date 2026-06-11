@@ -1,4 +1,6 @@
 interface:
   display_name: "Deckhand"
   short_description: "Make, fix, and organize Anki cards the right way"
+  icon_small: "./assets/icon.png"
+  icon_large: "./assets/logo.png"
   default_prompt: "Use $deckhand to turn my source material into well-cited Anki cards, rescue my weak cards, or tidy up my decks — previewing changes before applying them."

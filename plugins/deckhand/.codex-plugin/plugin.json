@@ -28,8 +28,8 @@
     "category": "Productivity",
     "capabilities": ["Read", "Write"],
     "websiteURL": "https://github.com/bentoware/deckhand",
-    "composerIcon": "assets/mockups/portrait-scale/portrait-scale-03-cameo-transparent.png",
-    "logo": "assets/mockups/portrait-scale/portrait-scale-03-cameo-transparent.png",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/logo.png",
     "defaultPrompt": [
       "Turn this PDF into well-cited Anki cards",
       "Find my leeches and help me rewrite them",
