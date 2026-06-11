@@ -234,10 +234,12 @@ def build_recipe_view(parent: Any, *, logger=None, log_prefix: str = "ui") -> di
             logger(f"{log_prefix}.connect_snippet_copied", client=state["client"])
 
     copy_button.clicked.connect(lambda _checked=False: copy_snippet())
-    copy_row = QHBoxLayout()
+    copy_row_widget = QWidget(card)
+    copy_row = QHBoxLayout(copy_row_widget)
+    copy_row.setContentsMargins(0, 0, 0, 0)
     copy_row.addStretch(1)
     copy_row.addWidget(copy_button)
-    layout.addLayout(copy_row)
+    layout.addWidget(copy_row_widget)
 
     # The drag-or-save chip renders inside the step that mentions it, so it
     # lives detached from the layout until render() embeds it.
@@ -260,7 +262,15 @@ def build_recipe_view(parent: Any, *, logger=None, log_prefix: str = "ui") -> di
             if child is not None:
                 child.deleteLater()
 
-    def add_step(number: int, step_title: str, body: str, embed: Any = None) -> None:
+    def add_step(
+        number: int,
+        step_title: str,
+        body: str,
+        embed: Any = None,
+        copy_label: str = "",
+        copy_text: str = "",
+        copy_action: str = "",
+    ) -> None:
         row = QFrame(steps_box)
         row.setObjectName("deckhand_step")
         row.setStyleSheet(step_style)
@@ -270,14 +280,46 @@ def build_recipe_view(parent: Any, *, logger=None, log_prefix: str = "ui") -> di
         row_layout.addWidget(status_pill(str(number), "neutral"), 0, Qt.AlignmentFlag.AlignTop)
         text = QLabel(f"<b>{step_title}</b><br>{body}")
         text.setWordWrap(True)
-        if embed is None:
+        if embed is None and not copy_text:
             row_layout.addWidget(text, 1)
         else:
             column = QVBoxLayout()
             column.setSpacing(8)
             column.addWidget(text)
-            column.addWidget(embed)
-            embed.show()
+            if embed is not None:
+                column.addWidget(embed)
+                embed.show()
+            if copy_text:
+                copy_box = QWidget(row)
+                copy_layout = QVBoxLayout(copy_box)
+                copy_layout.setContentsMargins(0, 0, 0, 0)
+                copy_layout.setSpacing(6)
+                if copy_label:
+                    label = section_title(copy_label)
+                    copy_layout.addWidget(label)
+                copy_field = QPlainTextEdit(copy_text)
+                copy_field.setReadOnly(True)
+                copy_field.setMaximumHeight(72)
+                copy_field.setStyleSheet(
+                    f"QPlainTextEdit {{ background: {pal['mono']}; border: 1px solid {pal['border']}; "
+                    "border-radius: 6px; font-family: Menlo, Monaco, 'Courier New', monospace; }"
+                )
+                copy_layout.addWidget(copy_field)
+                copy_button = QPushButton(copy_action or "Copy")
+
+                def copy_step_text(_checked: bool = False, field: Any = copy_field) -> None:
+                    clipboard = QGuiApplication.clipboard()
+                    if clipboard is not None:
+                        clipboard.setText(field.toPlainText())
+                    if logger:
+                        logger(f"{log_prefix}.connect_step_copied", client=state["client"])
+
+                copy_button.clicked.connect(copy_step_text)
+                button_row = QHBoxLayout()
+                button_row.addStretch(1)
+                button_row.addWidget(copy_button)
+                copy_layout.addLayout(button_row)
+                column.addWidget(copy_box)
             row_layout.addLayout(column, 1)
         steps_layout.addWidget(row)
 
@@ -286,13 +328,25 @@ def build_recipe_view(parent: Any, *, logger=None, log_prefix: str = "ui") -> di
         title.setText(f"Set up {recipe['label']}")
         intro.setText(str(recipe["intro"]))
         clear_steps()
+        has_step_copy = any(step.get("copyText") for step in recipe["steps"])
         for number, step in enumerate(recipe["steps"], start=1):
             embed = mcpb_section if step.get("embed") == "mcpb" else None
-            add_step(number, str(step["title"]), str(step["body"]), embed=embed)
+            add_step(
+                number,
+                str(step["title"]),
+                str(step["body"]),
+                embed=embed,
+                copy_label=str(step.get("copyLabel") or ""),
+                copy_text=str(step.get("copyText") or ""),
+                copy_action=str(step.get("copyAction") or ""),
+            )
         snippet_title.setText(str(recipe["snippetLabel"]))
         snippet.setPlainText(str(recipe["snippet"]))
         action = str(recipe.get("primaryAction") or "")
         copy_button.setText(action if action.startswith("Copy") else "Copy")
+        snippet_title.setVisible(not has_step_copy)
+        snippet.setVisible(not has_step_copy)
+        copy_row_widget.setVisible(not has_step_copy)
 
     return {"widget": card, "render": render}
 

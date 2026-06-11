@@ -324,7 +324,7 @@ def _build_connect_tab(parent: Any, logger=None, initial_client: str | None = No
     ready_layout.addLayout(url_row)
     layout.addWidget(ready_card)
 
-    layout.addWidget(_section_title("Pick your MCP host"))
+    layout.addWidget(_section_title("Pick your app"))
 
     recipe_view = ui.build_recipe_view(widget, logger=logger, log_prefix="management")
 

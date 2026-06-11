@@ -626,6 +626,9 @@ class AddonShellTests(unittest.TestCase):
         code = management.connect_recipe(management.CLIENT_CLAUDE_CODE, url)
         self.assertEqual(code["snippet"], connect_hosts.CLAUDE_PLUGIN_INSTALL_COMMANDS)
         self.assertTrue(any(f"claude mcp add --transport http deckhand {url}" in step for step in code["steps"]))
+        raw_code = connect_hosts.connect_recipe(management.CLIENT_CLAUDE_CODE, url)
+        self.assertEqual(raw_code["steps"][1]["copyText"], connect_hosts.CLAUDE_PLUGIN_INSTALL_COMMANDS)
+        self.assertEqual(raw_code["steps"][3]["copyText"], f"claude mcp add --transport http deckhand {url}")
 
         code_with_token = management.connect_recipe(management.CLIENT_CLAUDE_CODE, url, "tok123")
         self.assertEqual(code_with_token["snippet"], f'claude mcp add --transport http deckhand {url} --header "Authorization: Bearer tok123"')
@@ -637,6 +640,9 @@ class AddonShellTests(unittest.TestCase):
         codex_plugin = management.connect_recipe(management.CLIENT_CODEX, url)
         self.assertEqual(codex_plugin["snippet"], connect_hosts.CODEX_PLUGIN_INSTALL_COMMANDS)
         self.assertTrue(any(f'url = "{url}"' in step for step in codex_plugin["steps"]))
+        raw_codex = connect_hosts.connect_recipe(management.CLIENT_CODEX, url)
+        self.assertEqual(raw_codex["steps"][1]["copyText"], connect_hosts.CODEX_PLUGIN_INSTALL_COMMANDS)
+        self.assertEqual(raw_codex["steps"][3]["copyText"], f'[mcp_servers.deckhand]\nurl = "{url}"')
 
         codex = management.connect_recipe(management.CLIENT_CODEX, url, "tok123")
         self.assertIn("[mcp_servers.deckhand]", codex["snippet"])
@@ -654,10 +660,15 @@ class AddonShellTests(unittest.TestCase):
         self.assertTrue(any("Add marketplace" in step for step in codex_desktop_plugin["steps"]))
         self.assertTrue(any("Deckhand marketplace tab" in step for step in codex_desktop_plugin["steps"]))
         self.assertTrue(any(f'url = "{url}"' in step for step in codex_desktop_plugin["steps"]))
+        raw_codex_desktop = connect_hosts.connect_recipe(management.CLIENT_CODEX_DESKTOP, url)
+        self.assertEqual(raw_codex_desktop["steps"][1]["copyText"], connect_hosts.CODEX_PLUGIN_MARKETPLACE_SOURCE)
+        self.assertEqual(raw_codex_desktop["steps"][4]["copyText"], f'[mcp_servers.deckhand]\nurl = "{url}"')
 
         other = management.connect_recipe("unknown-client", url)
         self.assertEqual(other["snippet"], url)
         self.assertTrue(any("Streamable HTTP" in step for step in other["steps"]))
+        raw_other = connect_hosts.connect_recipe("unknown-client", url)
+        self.assertEqual(raw_other["steps"][2]["copyText"], url)
 
     def test_claude_code_plugin_manifest_matches_recipe_endpoint(self):
         manifest = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
@@ -718,6 +729,9 @@ class AddonShellTests(unittest.TestCase):
         # The chip embeds inside the install step instead of trailing the card.
         self.assertIn('step.get("embed") == "mcpb"', source)
         self.assertNotIn("mcpb_section.setVisible", source)
+        self.assertIn('step.get("copyText")', source)
+        self.assertIn("connect_step_copied", source)
+        self.assertIn("copy_row_widget.setVisible(not has_step_copy)", source)
 
     def test_connect_tab_uses_alphabetical_pill_bar_instead_of_dropdown(self):
         source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
@@ -730,7 +744,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("ui.build_host_pillbar", connect_body)
         self.assertIn("ui.build_recipe_view", connect_body)
         self.assertIn("QButtonGroup", ui_source)
-        self.assertIn('layout.addWidget(_section_title("Pick your MCP host"))', connect_body)
+        self.assertIn('layout.addWidget(_section_title("Pick your app"))', connect_body)
         self.assertEqual(labels, sorted(labels, key=str.lower))
         self.assertIn("Codex Desktop", labels)
 
@@ -1084,7 +1098,7 @@ class AddonShellTests(unittest.TestCase):
         source = (ADDON / "deckhand" / "welcome.py").read_text(encoding="utf-8")
 
         self.assertIn("QStackedWidget", source)
-        self.assertIn("Choose your MCP host", source)
+        self.assertIn("Choose your app", source)
         self.assertIn("connect_hosts.connect_hosts()", source)
         self.assertIn("connect_hosts.CLIENT_CODEX_DESKTOP", source)
         self.assertIn("ui.build_recipe_view", source)

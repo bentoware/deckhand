@@ -118,7 +118,10 @@ def connect_recipe(client_id: str, mcp_url: str, token: str | None = None) -> di
             },
             {
                 "title": "Manual fallback",
-                "body": 'In Claude Desktop, open Settings, then Connectors, choose "Add custom connector", and paste the server URL below.',
+                "body": 'In Claude Desktop, open Settings, then Connectors, choose "Add custom connector", and paste this server URL.',
+                "copyLabel": "Server URL",
+                "copyText": mcp_url,
+                "copyAction": "Copy server URL",
             },
         ]
         if token:
@@ -150,11 +153,17 @@ def connect_recipe(client_id: str, mcp_url: str, token: str | None = None) -> di
                 {
                     "title": "Install the Deckhand plugin",
                     "body": "Paste the two commands below and press Return. The plugin connects Claude Code to Anki and bundles Deckhand's study skills, and stays current automatically.",
+                    "copyLabel": "Terminal commands",
+                    "copyText": CLAUDE_PLUGIN_INSTALL_COMMANDS,
+                    "copyAction": "Copy commands",
                 },
                 {"title": "Restart Claude Code", "body": 'Ask it, "Can you list my Anki decks?" to verify the connection.'},
                 {
                     "title": "Plugin path blocked?",
-                    "body": f"As a last resort, add the bare MCP connection instead (no bundled skills): {mcp_command}",
+                    "body": "As a last resort, add the bare MCP connection instead. This path does not bundle Deckhand's study skills.",
+                    "copyLabel": "Fallback command",
+                    "copyText": mcp_command,
+                    "copyAction": "Copy fallback command",
                 },
             ]
             return {
@@ -178,7 +187,13 @@ def connect_recipe(client_id: str, mcp_url: str, token: str | None = None) -> di
             "intro": f"{reason}, so connect Claude Code with the command below.",
             "steps": [
                 {"title": "Open Terminal", "body": "Use the same macOS account that runs Anki."},
-                {"title": "Run the command", "body": "Paste the command below and press Return."},
+                {
+                    "title": "Run the command",
+                    "body": "Paste the command below and press Return.",
+                    "copyLabel": "Terminal command",
+                    "copyText": mcp_command,
+                    "copyAction": "Copy command",
+                },
                 {"title": "Restart Claude Code", "body": 'Ask it, "Can you list my Anki decks?" to verify the connection.'},
                 {
                     "title": "Want the study skills too?",
@@ -211,11 +226,17 @@ def connect_recipe(client_id: str, mcp_url: str, token: str | None = None) -> di
                     {
                         "title": "Install the Deckhand plugin",
                         "body": "Paste the two commands below and press Return. The plugin connects Codex CLI to Anki and bundles Deckhand's study skills.",
+                        "copyLabel": "Terminal commands",
+                        "copyText": CODEX_PLUGIN_INSTALL_COMMANDS,
+                        "copyAction": "Copy commands",
                     },
                     {"title": "Start a new Codex session", "body": 'Ask it, "Can you list my Anki decks?" to verify the connection.'},
                     {
                         "title": "Plugin path blocked?",
-                        "body": f"As a fallback, add the bare MCP connection in ~/.codex/config.toml instead: {config_block}",
+                        "body": "As a fallback, add the bare MCP connection in ~/.codex/config.toml instead.",
+                        "copyLabel": "config.toml block",
+                        "copyText": config_block,
+                        "copyAction": "Copy config block",
                     },
                 ],
                 "snippet": CODEX_PLUGIN_INSTALL_COMMANDS,
@@ -234,7 +255,13 @@ def connect_recipe(client_id: str, mcp_url: str, token: str | None = None) -> di
             "intro": f"{reason}, so connect Codex CLI with the config block below.",
             "steps": [
                 {"title": "Open the Codex config file", "body": "Open ~/.codex/config.toml. If the file is missing, create it as a plain text file."},
-                {"title": "Paste the Deckhand block", "body": "Copy the block below into the file, then save it. Keep any existing settings above or below it."},
+                {
+                    "title": "Paste the Deckhand block",
+                    "body": "Copy the block below into the file, then save it. Keep any existing settings above or below it.",
+                    "copyLabel": "config.toml block",
+                    "copyText": config_block,
+                    "copyAction": "Copy config block",
+                },
                 {"title": "Start a new Codex session", "body": "New sessions should include Deckhand's Anki tools."},
                 {
                     "title": "Want the study skills too?",
@@ -267,12 +294,18 @@ def connect_recipe(client_id: str, mcp_url: str, token: str | None = None) -> di
                     {
                         "title": "Add the Deckhand marketplace",
                         "body": f"Paste the source URL below. Leave Git ref as main unless you need another branch, leave Sparse paths empty, then click Add marketplace.",
+                        "copyLabel": "Marketplace source URL",
+                        "copyText": CODEX_PLUGIN_MARKETPLACE_SOURCE,
+                        "copyAction": "Copy marketplace URL",
                     },
                     {"title": "Install Deckhand", "body": 'Open the Deckhand marketplace tab and click "Add" next to Deckhand.'},
                     {"title": "Start a new chat", "body": 'Ask Codex, "Can you list my Anki decks?" to verify the connection.'},
                     {
                         "title": "Plugin path blocked?",
-                        "body": f"As a fallback, add the bare MCP connection in ~/.codex/config.toml instead: {config_block}",
+                        "body": "As a fallback, add the bare MCP connection in ~/.codex/config.toml instead.",
+                        "copyLabel": "config.toml block",
+                        "copyText": config_block,
+                        "copyAction": "Copy config block",
                     },
                 ],
                 "snippet": CODEX_PLUGIN_MARKETPLACE_SOURCE,
@@ -291,7 +324,13 @@ def connect_recipe(client_id: str, mcp_url: str, token: str | None = None) -> di
             "intro": f"{reason}, so connect Codex Desktop with the config block below.",
             "steps": [
                 {"title": "Open the Codex config file", "body": "Open ~/.codex/config.toml. If the file is missing, create it as a plain text file."},
-                {"title": "Paste the Deckhand block", "body": "Copy the block below into the file, then save it. Keep any existing settings above or below it."},
+                {
+                    "title": "Paste the Deckhand block",
+                    "body": "Copy the block below into the file, then save it. Keep any existing settings above or below it.",
+                    "copyLabel": "config.toml block",
+                    "copyText": config_block,
+                    "copyAction": "Copy config block",
+                },
                 {"title": "Restart Codex", "body": "Quit and reopen Codex Desktop. New sessions should include Deckhand's Anki tools."},
                 {
                     "title": "Want the study skills too?",
@@ -311,7 +350,13 @@ def connect_recipe(client_id: str, mcp_url: str, token: str | None = None) -> di
     steps = [
         {"title": "Open your MCP host settings", "body": "Find the area where custom MCP servers are added."},
         {"title": "Choose Streamable HTTP", "body": "Deckhand uses one local Streamable HTTP endpoint."},
-        {"title": "Paste the server URL", "body": "Copy the URL below into the host's server URL field."},
+        {
+            "title": "Paste the server URL",
+            "body": "Copy this URL into the host's server URL field.",
+            "copyLabel": "Server URL",
+            "copyText": mcp_url,
+            "copyAction": "Copy server URL",
+        },
         {"title": "Reconnect tools", "body": "Save, then reconnect or refresh the host's MCP tools list."},
     ]
     if token:
@@ -329,4 +374,10 @@ def connect_recipe(client_id: str, mcp_url: str, token: str | None = None) -> di
 
 
 def plain_step_text(recipe: dict[str, Any]) -> list[str]:
-    return [f"{step['title']}: {step['body']}" for step in recipe["steps"]]
+    lines = []
+    for step in recipe["steps"]:
+        line = f"{step['title']}: {step['body']}"
+        if step.get("copyText"):
+            line += f" {step.get('copyLabel') or 'Copy'}: {step['copyText']}"
+        lines.append(line)
+    return lines

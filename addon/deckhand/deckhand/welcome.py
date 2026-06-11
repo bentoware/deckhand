@@ -26,7 +26,7 @@ WELCOME_BODY = (
 )
 WIZARD_PAGE_TITLES = [
     "Welcome",
-    "Choose your MCP host",
+    "Choose your app",
     "Connect your app",
     "Check and finish",
 ]
@@ -152,7 +152,7 @@ def _show_welcome_dialog(mw: Any, open_setup: Callable[..., None] | None, logger
     choose_layout = QVBoxLayout(choose_page)
     choose_layout.setContentsMargins(0, 0, 0, 0)
     choose_layout.setSpacing(10)
-    choose_layout.addWidget(ui.title_label("Choose your MCP host", size=20))
+    choose_layout.addWidget(ui.title_label("Choose your app", size=20))
     choose_layout.addWidget(
         ui.muted_label(
             "Pick the app where Anki tools should appear. You can connect more apps later "
