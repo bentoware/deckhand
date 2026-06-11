@@ -72,18 +72,26 @@ Useful overrides:
 
 ```sh
 DECKHAND_SAFE_BRIDGE_URL=ws://127.0.0.1:28765/ws/anki
-DECKHAND_MCP_TOOL_ALLOWLIST=anki_execute,anki_app_get_state
+DECKHAND_MCP_TOOL_ALLOWLIST=anki_run_python,anki_app_get_state
 DECKHAND_MCP_TOOL_TIMEOUT_SECONDS=120
 DECKHAND_ANKI_PROGRAM_FILES="$HOME/Library/Application Support/AnkiProgramFiles"
 ```
 
-WebEngine CDP tools such as `anki_webengine_take_snapshot`, `anki_webengine_take_screenshot`, and `anki_webengine_evaluate_script` require Anki to be launched with Qt WebEngine remote debugging enabled:
+Rendered Anki UI inspection goes through `anki_run_python` with the bundled Python SDK:
+
+```python
+import inspect
+import deckhand.web as web
+result = {"doc": inspect.getdoc(web), "members": [x for x in dir(web) if not x.startswith("_")]}
+```
+
+Launch Anki with Qt WebEngine remote debugging when using `deckhand.web` page helpers:
 
 ```sh
 QTWEBENGINE_REMOTE_DEBUGGING=9222 open -a Anki
 ```
 
-Those tools only connect to local CDP targets and use standard MCP annotations; screenshots write to the caller-provided `filePath` and return file metadata.
+Browser-sized data should be written through SDK `file=` arguments or `anki_run_python`'s `resultFilePath`; large inline results are explicitly omitted with envelope metadata instead of silently truncated.
 
 ## Local Security
 

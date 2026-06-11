@@ -23,9 +23,10 @@ use crate::anki_mcp_server;
 const ANKI_SDK_ANKI_PATH_PLACEHOLDER: &str = "{anki_sdk_anki_path}";
 const ANKI_SDK_AQT_PATH_PLACEHOLDER: &str = "{anki_sdk_aqt_path}";
 const COMPANION_TOKEN_ENV: &str = "DECKHAND_COMPANION_TOKEN";
+const MCP_REQUIRE_TOKEN_ENV: &str = "DECKHAND_MCP_REQUIRE_TOKEN";
 const MCP_TOOL_TIMEOUT_ENV: &str = "DECKHAND_MCP_TOOL_TIMEOUT_SECONDS";
 const STATE_ROOT_ENV: &str = "DECKHAND_ANKI_EXTENSION_STATE_ROOT";
-const DEFAULT_STATE_ROOT: &str = "/Users/thoffman/github.com/bentoware/deckhand-state";
+const LEGACY_DEV_STATE_ROOT: &str = "/Users/thoffman/github.com/bentoware/deckhand-state";
 const DEFAULT_MCP_TOOL_TIMEOUT_SECONDS: u64 = 120;
 
 #[derive(Debug, Clone, Serialize)]
@@ -234,7 +235,10 @@ fn anki_bridge_tools_from_registration_for_visibility_path(
     registration: &Value,
     visibility_path: &Path,
 ) -> Value {
-    let visible = read_visible_tool_names(visibility_path);
+    let canonical_tools = mcp_tool_inventory_for_visibility_path(visibility_path)
+        .into_iter()
+        .map(|tool| tool.name)
+        .collect::<HashSet<_>>();
     let tools = registration
         .pointer("/params/tools")
         .or_else(|| registration.pointer("/params/capabilities/tools"))
@@ -246,7 +250,7 @@ fn anki_bridge_tools_from_registration_for_visibility_path(
             tool.get("name")
                 .and_then(Value::as_str)
                 .is_some_and(|name| {
-                    is_anki_bridge_tool_name(name) && mcp_tool_allowed(name, visible.as_ref())
+                    is_anki_bridge_tool_name(name) && canonical_tools.contains(name)
                 })
         })
         .collect::<Vec<_>>();
@@ -275,10 +279,39 @@ fn mcp_tool_allowed(name: &str, visible: Option<&HashSet<String>>) -> bool {
 }
 
 fn tool_visibility_path() -> PathBuf {
-    env::var(STATE_ROOT_ENV)
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(DEFAULT_STATE_ROOT))
-        .join("tool-visibility.json")
+    state_root().join("tool-visibility.json")
+}
+
+fn state_root() -> PathBuf {
+    if let Ok(configured) = env::var(STATE_ROOT_ENV) {
+        return PathBuf::from(configured);
+    }
+    let legacy = PathBuf::from(LEGACY_DEV_STATE_ROOT);
+    if legacy.is_dir() {
+        return legacy;
+    }
+    default_state_root(env::var("HOME").ok().as_deref(), std::env::consts::OS)
+}
+
+fn default_state_root(home: Option<&str>, os: &str) -> PathBuf {
+    let home = PathBuf::from(home.unwrap_or("~"));
+    match os {
+        "macos" => home
+            .join("Library")
+            .join("Application Support")
+            .join("Deckhand")
+            .join("state"),
+        "windows" => env::var("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| home.join("AppData").join("Roaming"))
+            .join("Deckhand")
+            .join("state"),
+        _ => env::var("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| home.join(".local").join("share"))
+            .join("deckhand")
+            .join("state"),
+    }
 }
 
 fn read_visible_tool_names(path: &Path) -> Option<HashSet<String>> {
@@ -426,6 +459,10 @@ async fn handle_connection(mut stream: TcpStream) -> Result<()> {
         return handle_anki_bridge(stream, &request).await;
     }
     if path == "/mcp" && parse_method(&request) != "OPTIONS" {
+        if mcp_token_required() && !authorized_internal_request(&request) {
+            return write_response(&mut stream, 401, "application/json", &unauthorized_body())
+                .await;
+        }
         return handle_mcp_http(stream, request).await;
     }
     let (status, content_type, body) = route_request(&request).await;
@@ -478,6 +515,10 @@ fn request_header<'a>(request: &'a str, name: &str) -> Option<&'a str> {
             None
         }
     })
+}
+
+fn mcp_token_required() -> bool {
+    env::var(MCP_REQUIRE_TOKEN_ENV).is_ok_and(|value| value == "1")
 }
 
 fn authorized_internal_request(request: &str) -> bool {
@@ -919,10 +960,10 @@ mod tests {
             .iter()
             .any(|tool| tool.name == "anki_media_add_bytes"));
         assert!(inventory.iter().any(|tool| tool.name == "anki_note_search"));
-        assert!(inventory.iter().any(|tool| tool.name == "anki_execute"));
-        assert!(inventory
+        assert!(inventory.iter().any(|tool| tool.name == "anki_run_python"));
+        assert!(!inventory
             .iter()
-            .any(|tool| tool.name == "anki_webengine_take_snapshot"));
+            .any(|tool| tool.name.starts_with("anki_webengine_")));
         assert!(inventory
             .iter()
             .any(|tool| tool.name == "anki_export_notes"));
@@ -964,7 +1005,7 @@ mod tests {
         ));
         std::fs::write(
             &path,
-            r#"{"visibleTools":["anki_execute","anki_runtime_info","anki_webengine_status","anki_unknown"]}"#,
+            r#"{"visibleTools":["anki_run_python","anki_runtime_info","anki_webengine_status","anki_unknown"]}"#,
         )
         .unwrap();
 
@@ -976,7 +1017,7 @@ mod tests {
 
         assert_eq!(
             names,
-            ["anki_execute", "anki_runtime_info", "anki_webengine_status"]
+            ["anki_run_python", "anki_runtime_info"]
                 .into_iter()
                 .collect()
         );
@@ -995,7 +1036,7 @@ mod tests {
         ));
         std::fs::write(
             &path,
-            r#"{"visibleTools":["anki_execute","anki_webengine_status"]}"#,
+            r#"{"visibleTools":["anki_run_python","anki_runtime_info","anki_webengine_status"]}"#,
         )
         .unwrap();
 
@@ -1004,7 +1045,8 @@ mod tests {
                 "params": {
                     "tools": [
                         { "name": "anki_app_get_state" },
-                        { "name": "anki_execute" },
+                        { "name": "anki_run_python" },
+                        { "name": "anki_runtime_info" },
                         { "name": "anki_webengine_status" },
                         { "name": "other.exec.run" }
                     ]
@@ -1021,7 +1063,7 @@ mod tests {
 
         assert_eq!(
             names,
-            ["anki_execute", "anki_webengine_status"]
+            ["anki_run_python", "anki_runtime_info"]
                 .into_iter()
                 .collect()
         );
@@ -1129,6 +1171,32 @@ mod tests {
         std::env::remove_var(COMPANION_TOKEN_ENV);
     }
 
+    #[test]
+    fn default_state_root_is_platform_appropriate() {
+        let mac = default_state_root(Some("/Users/example"), "macos");
+        assert_eq!(
+            mac,
+            PathBuf::from("/Users/example/Library/Application Support/Deckhand/state")
+        );
+
+        std::env::remove_var("XDG_DATA_HOME");
+        let linux = default_state_root(Some("/home/example"), "linux");
+        assert_eq!(linux, PathBuf::from("/home/example/.local/share/deckhand/state"));
+    }
+
+    #[test]
+    fn mcp_token_requirement_follows_env_flag() {
+        std::env::remove_var(MCP_REQUIRE_TOKEN_ENV);
+        assert!(!mcp_token_required());
+
+        std::env::set_var(MCP_REQUIRE_TOKEN_ENV, "0");
+        assert!(!mcp_token_required());
+
+        std::env::set_var(MCP_REQUIRE_TOKEN_ENV, "1");
+        assert!(mcp_token_required());
+        std::env::remove_var(MCP_REQUIRE_TOKEN_ENV);
+    }
+
     #[tokio::test]
     async fn removed_app_state_route_is_not_exposed() {
         std::env::set_var(COMPANION_TOKEN_ENV, "secret-token");
@@ -1200,7 +1268,7 @@ mod tests {
         std::fs::create_dir_all(&state_root).unwrap();
         std::fs::write(
             state_root.join("tool-visibility.json"),
-            r#"{"visibleTools":["anki_execute","anki_webengine_status"]}"#,
+            r#"{"visibleTools":["anki_run_python","anki_runtime_info","anki_webengine_status"]}"#,
         )
         .unwrap();
         std::env::set_var(STATE_ROOT_ENV, &state_root);
@@ -1215,7 +1283,8 @@ mod tests {
                     "protocolVersion": "deckhand.ankiBridge.v1",
                     "tools": [
                         { "name": "anki_app_get_state", "risk": "read" },
-                        { "name": "anki_execute", "risk": "dev_exec" },
+                        { "name": "anki_run_python", "risk": "dev_exec" },
+                        { "name": "anki_runtime_info", "risk": "read" },
                         { "name": "anki_webengine_status", "risk": "read" },
                         { "name": "other.exec.run", "risk": "system_exec" },
                         { "name": "other.exec.run", "risk": "system_exec" },
@@ -1230,13 +1299,13 @@ mod tests {
         assert_eq!(payload["source"], "anki_bridge");
         assert_eq!(payload["protocol"], "deckhand.ankiBridge.v1");
         assert_eq!(payload["tools"].as_array().unwrap().len(), 2);
-        assert_eq!(payload["tools"][0]["name"], "anki_execute");
-        assert_eq!(payload["tools"][1]["name"], "anki_webengine_status");
+        assert_eq!(payload["tools"][0]["name"], "anki_run_python");
+        assert_eq!(payload["tools"][1]["name"], "anki_runtime_info");
 
         let mcp_payload = hub.mcp_tools_list_payload().await;
         assert_eq!(mcp_payload["tools"].as_array().unwrap().len(), 2);
-        assert_eq!(mcp_payload["tools"][0]["name"], "anki_execute");
-        assert_eq!(mcp_payload["tools"][1]["name"], "anki_webengine_status");
+        assert_eq!(mcp_payload["tools"][0]["name"], "anki_run_python");
+        assert_eq!(mcp_payload["tools"][1]["name"], "anki_runtime_info");
 
         std::env::remove_var(STATE_ROOT_ENV);
         let _ = std::fs::remove_dir_all(state_root);
@@ -1319,7 +1388,7 @@ mod tests {
             session,
             Some(json!({
                 "params": {
-                    "tools": [{ "name": "anki_execute" }]
+                    "tools": [{ "name": "anki_run_python" }]
                 }
             })),
         )

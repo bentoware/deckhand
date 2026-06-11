@@ -17,10 +17,7 @@
     "anki_model",
     "anki_media",
     "anki_export",
-    "anki_backup",
-    "anki_browser",
-    "anki_editor",
-    "anki_webengine"
+    "anki_backup"
   ],
   "registration": {
     "method": "anki_bridge_hello",

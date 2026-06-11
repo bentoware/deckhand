@@ -18,11 +18,14 @@ from . import media_tools
 from . import runtime_tools
 from . import structure_tools
 from . import typed_tools
-from . import webengine_tools
+from . import skills_updates
+from . import updates
+from . import welcome
 from .bridge import bridge_status
 from .capabilities import anki_bridge_capability_payload, capability_payload
 from .direct_executor import DirectExecutor
 from .state_paths import work_root
+from .version import ADDON_VERSION
 
 _menu = None
 _executor = DirectExecutor()
@@ -68,9 +71,6 @@ def _start_safe_bridge_transport() -> None:
 
 
 def _call_executor_on_main(tool: str, arguments: dict[str, object]) -> dict[str, object]:
-    if tool.startswith("anki_webengine_"):
-        return _executor.call(tool, arguments).to_dict()
-
     try:
         from aqt import mw
         from aqt.qt import QApplication, QThread
@@ -120,7 +120,11 @@ def setup() -> None:
     _install_companion_shutdown_hook()
     _start_safe_bridge_transport()
     _install_menu(mw)
-    management.maybe_show_cdp_banner(mw, logger=_log)
+    if not welcome.maybe_show_welcome(mw, open_setup=show_management, logger=_log):
+        # First launch gets the splash instead; the banner can wait a session.
+        management.maybe_show_cdp_banner(mw, logger=_log)
+    updates.start_background_check(mw, logger=_log)
+    skills_updates.start_background_sync(mw, logger=_log)
 
     _log(
         "addon.loaded",
@@ -183,21 +187,14 @@ def _install_menu(mw) -> None:
 
 def _register_default_tools() -> None:
     _executor.register(
-        "anki_execute",
+        "anki_run_python",
         lambda args: dev_tools.run_python_snippet(
             str(args.get("snippet", "")),
+            result_file_path=str(args.get("resultFilePath", "")).strip() or None,
+            result_format=str(args.get("resultFormat", "json")),
+            inline_limit_bytes=args.get("inlineLimitBytes", dev_tools.DEFAULT_INLINE_LIMIT_BYTES),
         ),
     )
-    _executor.register("anki_webengine_status", lambda args: webengine_tools.status(args.get("host"), args.get("port"), float(args.get("timeoutSeconds", 2.0))))
-    _executor.register("anki_webengine_list_pages", lambda args: webengine_tools.list_pages(args.get("host"), args.get("port"), float(args.get("timeoutSeconds", 2.0))))
-    _executor.register("anki_webengine_take_snapshot", lambda args: webengine_tools.take_snapshot(args))
-    _executor.register("anki_webengine_take_screenshot", lambda args: webengine_tools.take_screenshot(args))
-    _executor.register("anki_webengine_evaluate_script", lambda args: webengine_tools.evaluate_script(args))
-    _executor.register("anki_webengine_click", lambda args: webengine_tools.click(args))
-    _executor.register("anki_webengine_type_text", lambda args: webengine_tools.type_text(args))
-    _executor.register("anki_webengine_press_key", lambda args: webengine_tools.press_key(args))
-    _executor.register("anki_webengine_wait_for", lambda args: webengine_tools.wait_for(args))
-    _executor.register("anki_webengine_send_cdp_command", lambda args: webengine_tools.send_cdp_command(args))
     _executor.register("anki_runtime_info", lambda _args: runtime_tools.runtime_info(_mw()))
     _executor.register(
         "anki_app_get_state", lambda _args: context_tools.current_context(_mw())
@@ -408,7 +405,7 @@ def _bridge_registry() -> dict[str, object]:
     return {
         "bridgeId": "anki-local-profile",
         "protocolVersion": "deckhand.ankiBridge.v1",
-        "addonVersion": "0.1.0",
+        "addonVersion": ADDON_VERSION,
         "profileHash": hashlib.sha256(profile_name.encode("utf-8")).hexdigest()[:16],
         "collectionHash": hashlib.sha256(collection_base.encode("utf-8")).hexdigest()[:16] if collection_base else None,
         "status": bridge_status.to_dict(),

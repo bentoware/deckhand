@@ -12,9 +12,11 @@ from typing import Any
 from urllib.error import URLError
 from urllib.request import urlopen
 
+from . import settings
+
 
 DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 28765
+DEFAULT_PORT = settings.DEFAULT_COMPANION_PORT
 EXPECTED_SERVICE = "deckhand-anki-companion"
 SERVER_BINARY = "deckhand-server.exe" if platform.system().lower() == "windows" else "deckhand-server"
 
@@ -28,12 +30,14 @@ def companion_host() -> str:
 
 
 def companion_port() -> int:
-    raw = os.environ.get("DECKHAND_COMPANION_PORT", str(DEFAULT_PORT))
+    raw = os.environ.get("DECKHAND_COMPANION_PORT")
+    if raw is None:
+        return settings.companion_port()
     try:
         port = int(raw)
     except ValueError:
-        return DEFAULT_PORT
-    return port if 1 <= port <= 65535 else DEFAULT_PORT
+        return settings.companion_port()
+    return port if 1 <= port <= 65535 else settings.companion_port()
 
 
 def companion_url(host: str | None = None, port: int | None = None) -> str:
@@ -52,6 +56,11 @@ def companion_token() -> str:
     if configured:
         _companion_token = configured
         return configured
+    if settings.require_mcp_token():
+        # Client configs embed this token, so it must survive Anki restarts.
+        _companion_token = settings.persistent_token()
+        os.environ["DECKHAND_COMPANION_TOKEN"] = _companion_token
+        return _companion_token
     if _companion_token is None:
         _companion_token = secrets.token_urlsafe(32)
         os.environ["DECKHAND_COMPANION_TOKEN"] = _companion_token
@@ -74,9 +83,20 @@ def platform_tag(system: str | None = None, machine: str | None = None) -> str:
     return f"{system}-{machine}"
 
 
-def ensure_running(logger=None) -> dict[str, Any]:
+def ensure_running(logger=None, *, force: bool = False) -> dict[str, Any]:
     if os.environ.get("DECKHAND_COMPANION_DISABLED") == "1":
         return _status("disabled", "companion autostart disabled")
+    if not force and not settings.companion_autostart():
+        current = health_status()
+        if current["healthy"] and current.get("compatible", True):
+            return _status(
+                "running",
+                "companion already healthy",
+                owned=_started_pid is not None,
+                pid=_started_pid,
+                health=current,
+            )
+        return _status("disabled", "companion autostart disabled in settings", health=current)
 
     current = health_status()
     if current["healthy"] and current.get("compatible", True):
@@ -126,6 +146,7 @@ def start_companion(binary: Path, logger=None) -> subprocess.Popen:
         "DECKHAND_COMPANION_LOG": str(log_dir / "companion.trace.log"),
         "DECKHAND_COMPANION_TOKEN": token,
         "DECKHAND_ANKI_BRIDGE_TOKEN": os.environ.get("DECKHAND_ANKI_BRIDGE_TOKEN", token),
+        "DECKHAND_MCP_REQUIRE_TOKEN": "1" if settings.require_mcp_token() else "0",
     }
     _process = subprocess.Popen(  # noqa: S603 - launches bundled local companion
         command,
@@ -186,7 +207,12 @@ def stop_companion_pid(pid: int, logger=None, timeout: float = 2.0, *, owned: bo
 
 def restart_companion(logger=None) -> dict[str, Any]:
     stop_recorded_companion(logger=logger)
-    return ensure_running(logger=logger)
+    return ensure_running(logger=logger, force=True)
+
+
+def start_companion_now(logger=None) -> dict[str, Any]:
+    """Start the companion on user request, regardless of the autostart setting."""
+    return ensure_running(logger=logger, force=True)
 
 
 def runtime_status() -> dict[str, Any]:
@@ -293,6 +319,10 @@ def _status(
         "binary": str(binary or bundled_server_path()),
         "url": companion_url(),
         "bridgeUrl": os.environ.get("DECKHAND_SAFE_BRIDGE_URL", f"ws://{companion_host()}:{companion_port()}/ws/anki"),
-        "auth": {"scheme": "bearer", "tokenPresent": bool(companion_token())},
+        "auth": {
+            "scheme": "bearer",
+            "tokenPresent": bool(companion_token()),
+            "mcpTokenRequired": settings.require_mcp_token(),
+        },
         "health": health or health_status(),
     }

@@ -6,9 +6,13 @@ import json
 import os
 import posix
 import sys
+from pathlib import Path
 from typing import Any
 
 MAX_RESULT_CHARS = 4000
+DEFAULT_INLINE_LIMIT_BYTES = 12_000
+MAX_INLINE_LIMIT_BYTES = 64_000
+RESULT_PREVIEW_CHARS = 4_000
 
 
 class DevToolError(RuntimeError):
@@ -26,15 +30,110 @@ class GuardedModuleProxy:
         return getattr(self._module, name)
 
 
-def run_python_snippet(snippet: str) -> dict[str, object]:
+def run_python_snippet(
+    snippet: str,
+    *,
+    result_file_path: str | None = None,
+    result_format: str = "json",
+    inline_limit_bytes: int | object = DEFAULT_INLINE_LIMIT_BYTES,
+) -> dict[str, object]:
     scope = _anki_snippet_globals()
     try:
         exec(compile(snippet, "<deckhand-dev-snippet>", "exec"), scope, scope)
     except BaseException as exc:  # noqa: BLE001 - normalize snippet exits/crashes into tool errors
         raise DevToolError(_format_snippet_failure(exc)) from exc
+    return result_envelope(
+        scope.get("result"),
+        result_file_path=result_file_path,
+        result_format=result_format,
+        inline_limit_bytes=inline_limit_bytes,
+    )
+
+
+def result_envelope(
+    value: Any,
+    *,
+    result_file_path: str | None = None,
+    result_format: str = "json",
+    inline_limit_bytes: int | object = DEFAULT_INLINE_LIMIT_BYTES,
+) -> dict[str, object]:
+    fmt = _normalize_result_format(result_format)
+    inline_limit = _normalize_inline_limit(inline_limit_bytes)
+    json_safe = json_safe_result(value)
+    serialized = _serialize_result(json_safe, fmt)
+    result_bytes = len(serialized.encode("utf-8"))
+    preview = _preview(serialized)
+    artifact = None
+
+    if result_file_path:
+        path = Path(result_file_path).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if fmt == "json":
+            path.write_text(serialized + "\n", encoding="utf-8")
+        else:
+            path.write_text(serialized, encoding="utf-8")
+        artifact = {
+            "path": str(path),
+            "bytes": path.stat().st_size,
+            "format": fmt,
+        }
+        return {
+            "result": None,
+            "resultInline": False,
+            "resultTruncated": False,
+            "resultOmitted": False,
+            "resultBytes": result_bytes,
+            "resultPreview": preview,
+            "artifact": artifact,
+        }
+
+    if result_bytes <= inline_limit:
+        return {
+            "result": redact_value(json_safe),
+            "resultInline": True,
+            "resultTruncated": False,
+            "resultOmitted": False,
+            "resultBytes": result_bytes,
+            "resultPreview": None,
+            "artifact": None,
+        }
+
     return {
-        "result": sanitize_result(scope.get("result")),
+        "result": None,
+        "resultInline": False,
+        "resultTruncated": False,
+        "resultOmitted": True,
+        "resultBytes": result_bytes,
+        "resultPreview": preview,
+        "artifact": None,
+        "message": "Result omitted from inline response; rerun with resultFilePath to write full output.",
     }
+
+
+def json_safe_result(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): json_safe_result(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [json_safe_result(item) for item in value]
+    if isinstance(value, tuple):
+        return [json_safe_result(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    try:
+        json.dumps(value)
+        return value
+    except TypeError:
+        return repr(value)
+
+
+def redact_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): redact_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact_value(item) for item in value]
+    if isinstance(value, str):
+        return redact_secrets(value)
+    return value
 
 
 def sanitize_result(value: Any) -> Any:
@@ -66,6 +165,33 @@ def redact_secrets(value: str) -> str:
         if marker in redacted.lower():
             redacted = "[redacted]"
     return redacted
+
+
+def _serialize_result(value: Any, fmt: str) -> str:
+    if fmt == "json":
+        return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True)
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def _preview(serialized: str) -> str:
+    return redact_secrets(truncate(serialized, RESULT_PREVIEW_CHARS))
+
+
+def _normalize_result_format(value: str | object) -> str:
+    fmt = str(value or "json").lower()
+    if fmt not in {"json", "text"}:
+        raise DevToolError("unsupported_result_format")
+    return fmt
+
+
+def _normalize_inline_limit(value: int | object) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = DEFAULT_INLINE_LIMIT_BYTES
+    return max(0, min(MAX_INLINE_LIMIT_BYTES, parsed))
 
 
 def _anki_snippet_globals() -> dict[str, object]:

@@ -8,7 +8,7 @@ from .command_catalog import command_catalog
 from .state_paths import work_root
 
 VISIBILITY_PATH = work_root() / "tool-visibility.json"
-MINIMAL_TEMPLATE_TOOLS = frozenset({"anki_execute", "anki_runtime_info"})
+MINIMAL_TEMPLATE_TOOLS = frozenset({"anki_run_python", "anki_runtime_info"})
 TEMPLATE_ALL = "all"
 TEMPLATE_RUNTIME_WEBENGINE = "runtime_webengine"
 TEMPLATE_NONE = "none"

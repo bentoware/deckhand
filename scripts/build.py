@@ -42,6 +42,11 @@ ADDON_PACKAGE_EXCLUDED_PATHS = {
 ADDON_PACKAGE_EXCLUDED_PARTS = {
     "anki_lens",
 }
+SKILLS_DIRS_ENV = "DECKHAND_BUNDLED_SKILLS_DIRS"
+DEFAULT_SKILL_SOURCE_ROOTS = [
+    ROOT / "skills",
+    ROOT.parent / "deckhand-skills" / "skills",
+]
 
 
 def run(command: list[str]) -> None:
@@ -72,7 +77,7 @@ def test_python() -> None:
 
 
 def test_rust() -> None:
-    run(["cargo", "test", "-p", "deckhand-server"])
+    run(["cargo", "test", "-p", "deckhand-server", "--", "--test-threads=1"])
 
 
 def build_rust(release: bool = False) -> None:
@@ -181,6 +186,23 @@ def validate_companion_binaries(binaries: dict[str, Path]) -> dict[str, Path]:
     return resolved
 
 
+def bundled_skill_sources() -> dict[str, Path]:
+    """Map skill name to source directory, first hit wins across roots."""
+    configured = os.environ.get(SKILLS_DIRS_ENV)
+    if configured:
+        roots = [Path(part).expanduser() for part in configured.split(":") if part]
+    else:
+        roots = DEFAULT_SKILL_SOURCE_ROOTS
+    sources: dict[str, Path] = {}
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for child in sorted(root.iterdir()):
+            if child.is_dir() and (child / "SKILL.md").is_file() and child.name not in sources:
+                sources[child.name] = child
+    return sources
+
+
 def package_addon(
     output: Path = ADDON_PACKAGE,
     release: bool = True,
@@ -207,6 +229,11 @@ def package_addon(
             archive.write(ADDON / relative, relative.as_posix())
         for tag, binary in sorted(binaries.items()):
             archive.write(binary, f"bin/{tag}/{server_binary_name_for_platform(tag)}")
+        for name, source in sorted(bundled_skill_sources().items()):
+            for file in sorted(source.rglob("*")):
+                relative = file.relative_to(source)
+                if file.is_file() and is_package_relative_path(relative):
+                    archive.write(file, (Path("skills") / name / relative).as_posix())
     print(f"wrote {output}")
 
 

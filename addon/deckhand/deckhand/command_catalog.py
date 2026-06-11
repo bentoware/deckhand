@@ -20,19 +20,30 @@ def anki_sdk_reference_paths(home: Path | None = None) -> tuple[str, str]:
     return str(site_packages / "anki"), str(site_packages / "aqt")
 
 
-def anki_execute_tool_description(home: Path | None = None, *, resolve_paths: bool = True) -> str:
+def anki_run_python_tool_description(home: Path | None = None, *, resolve_paths: bool = True) -> str:
     anki_path, aqt_path = anki_sdk_reference_paths(home) if resolve_paths else (
         ANKI_SDK_ANKI_PATH_PLACEHOLDER,
         ANKI_SDK_AQT_PATH_PLACEHOLDER,
     )
     return (
-        "Execute Python inside Anki's main process. Use this instead of general Python for Anki "
+        "Run Python inside Anki's main process. Use this instead of general Python for Anki "
         "inspection or mutation; code has normal imports plus mw/aqt access and returns the variable "
         "named result. Prefer Anki APIs via mw/aqt; do not edit the collection SQLite database or media "
-        "folder directly for mutations; run UI-affecting work on Anki's main Qt thread; use WebEngine "
-        "tools for rendered card/browser UI inspection. For large fields, rendered HTML, bulk note data, "
-        "logs, or diagnostics, write a UTF-8 artifact to a caller-chosen local path and return compact "
-        "metadata such as path, bytes, count, and summary instead of the full content. For local Anki SDK/source reference, inspect "
+        "folder directly for mutations; run UI-affecting work on Anki's main Qt thread. For rendered "
+        "card/browser UI inspection, use the bundled code-mode SDK instead of separate WebEngine MCP "
+        "tools: import deckhand.web as web; web.status(); web.pages(); p = web.page(preferred=\"main\"); "
+        "p.text(max_chars=None); p.snapshot(max_elements=200, max_tree_nodes=250, file=None); "
+        "p.html(file=None); p.screenshot(file, format=\"png\"); p.eval(script); "
+        "p.click(uid=..., selector=..., text=..., x=..., y=...); "
+        "p.type(text, uid=..., selector=..., clear=False); p.press(key); "
+        "p.wait_for(selector=..., text=..., expression=...). Examples: result = web.page().snapshot(); "
+        "result = web.page().screenshot(\"/tmp/anki-card.png\"); "
+        "result = web.page().html(file=\"/tmp/anki.html\"); "
+        "result = web.page().eval(\"document.body.innerText\"). Discover more with: import inspect, "
+        "deckhand.web as web; result = {\"doc\": inspect.getdoc(web), \"members\": [x for x in dir(web) if not x.startswith(\"_\")]}. "
+        "Small results are returned in a result envelope. For large fields, rendered HTML, bulk note data, "
+        "logs, or diagnostics, pass resultFilePath/resultFormat or use deckhand.web file= helpers so full "
+        "data is written as a local artifact instead of being omitted from the inline MCP response. For local Anki SDK/source reference, inspect "
         f"{anki_path} and {aqt_path}."
     )
 
@@ -125,19 +136,6 @@ MODEL_NAME = {"type": "string", "minLength": 1}
 FIELD_NAME = {"type": "string", "minLength": 1}
 FILE_PATH = {"type": "string", "minLength": 1}
 FOLDER_PATH = {"type": "string", "minLength": 1}
-CDP_TARGET = {
-    "webSocketDebuggerUrl": {"type": "string", "description": "Exact CDP page WebSocket URL from list_pages. Overrides all other target selectors."},
-    "pageId": {"type": "string", "description": "Exact CDP page id from list_pages."},
-    "title": {"type": "string", "description": "Case-insensitive substring of the target page title."},
-    "urlContains": {"type": "string", "description": "Substring that must appear in the target page URL."},
-    "preferredTarget": {"type": "string", "enum": ["main", "first", "strict"], "description": "How to choose a page when no explicit target selector is supplied. Default main prefers Anki's main webview; first chooses the first CDP page; strict fails if multiple pages are available."},
-    "host": {"type": "string", "description": "Local CDP host. Defaults to 127.0.0.1 and must be localhost."},
-    "port": {"type": "integer", "minimum": 1, "description": "Local CDP port. Defaults to 9222."},
-    "timeoutSeconds": {"type": "number", "minimum": 0.1, "description": "Per-operation timeout in seconds."},
-}
-
-WEBENGINE_TARGET_NOTE = " If no target is supplied, Deckhand defaults to Anki's page titled main webview; use list_pages first when the intended page is ambiguous."
-
 
 COMMAND_CATALOG: tuple[CommandCatalogEntry, ...] = (
     _entry("anki_app_get_state", "read", "Return current app, reviewer, editor, browser, deck, and profile state.", status="implemented"),
@@ -171,18 +169,22 @@ COMMAND_CATALOG: tuple[CommandCatalogEntry, ...] = (
     _entry("anki_export_deck_package", "read", "Export an Anki deck package to a required local file path using Anki's native package export APIs. Returns artifact metadata only.", status="implemented", input_schema=_schema({"filePath": FILE_PATH, "deck": {"type": "string"}, "includeMedia": {"type": "boolean"}, "includeScheduling": {"type": "boolean"}, "overwrite": {"type": "boolean"}}, ["filePath"]), evidence="artifact"),
     _entry("anki_export_collection_package", "read", "Export a modern Anki collection package to a required local file path using Anki's native collection export API. Returns artifact metadata only.", status="implemented", input_schema=_schema({"filePath": FILE_PATH, "includeMedia": {"type": "boolean"}, "overwrite": {"type": "boolean"}}, ["filePath"]), evidence="artifact"),
     _entry("anki_backup_create", "mutation", "Create a native Anki no-media collection backup in a required local folder using Anki's backup API. Returns backup path metadata only.", status="implemented", input_schema=_schema({"folderPath": FOLDER_PATH, "force": {"type": "boolean"}, "waitForCompletion": {"type": "boolean"}}, ["folderPath"]), evidence="artifact"),
-    _entry("anki_execute", "dev_exec", anki_execute_tool_description(resolve_paths=False), status="implemented", input_schema=_schema({"snippet": {"type": "string", "minLength": 1}}, ["snippet"])),
+    _entry(
+        "anki_run_python",
+        "dev_exec",
+        anki_run_python_tool_description(resolve_paths=False),
+        status="implemented",
+        input_schema=_schema(
+            {
+                "snippet": {"type": "string", "minLength": 1},
+                "resultFilePath": {"type": "string", "minLength": 1, "description": "Optional local path for writing the full result artifact."},
+                "resultFormat": {"type": "string", "enum": ["json", "text"], "description": "Artifact/measurement format. Defaults to json."},
+                "inlineLimitBytes": {"type": "integer", "minimum": 0, "maximum": 64000, "description": "Maximum inline result bytes before omission. Defaults to 12000 and is capped at 64000."},
+            },
+            ["snippet"],
+        ),
+    ),
     _entry("anki_runtime_info", "read", "Return compact live Anki, Python, Qt, profile, collection, media, add-on, and local SDK path information.", status="implemented"),
-    _entry("anki_webengine_status", "read", "Check Anki's local Qt WebEngine CDP endpoint status.", status="implemented"),
-    _entry("anki_webengine_list_pages", "read", "List debuggable Anki Qt WebEngine pages from the local CDP endpoint.", status="implemented"),
-    _entry("anki_webengine_take_snapshot", "read", "Take a compact text snapshot of an Anki Qt WebEngine CDP page, with Chrome DevTools-style uid refs for visible controls and content. Always use the latest snapshot before interacting by uid." + WEBENGINE_TARGET_NOTE, status="implemented", input_schema=_schema({**CDP_TARGET, "verbose": {"type": "boolean", "description": "Include more visible non-interactive content in the snapshot tree."}, "filePath": {"type": "string", "minLength": 1, "description": "Write snapshot text to a local file and return metadata instead of attaching the full text."}, "maxElements": {"type": "integer", "minimum": 1}, "maxTreeNodes": {"type": "integer", "minimum": 1}})),
-    _entry("anki_webengine_take_screenshot", "read", "Capture an Anki Qt WebEngine CDP page screenshot to a required local file path." + WEBENGINE_TARGET_NOTE, status="implemented", input_schema=_schema({**CDP_TARGET, "filePath": {"type": "string", "minLength": 1}, "format": {"type": "string", "enum": ["png", "jpeg", "webp"]}, "quality": {"type": "integer", "minimum": 0, "maximum": 100}, "captureBeyondViewport": {"type": "boolean"}}, ["filePath"]), evidence="artifact"),
-    _entry("anki_webengine_evaluate_script", "dev_exec", "Run JavaScript in an Anki Qt WebEngine CDP page; this can change UI state." + WEBENGINE_TARGET_NOTE, status="implemented", input_schema=_schema({**CDP_TARGET, "script": {"type": "string", "minLength": 1}, "awaitPromise": {"type": "boolean"}, "returnByValue": {"type": "boolean"}}, ["script"])),
-    _entry("anki_webengine_click", "dev_exec", "Click in an Anki Qt WebEngine CDP page by latest snapshot uid, selector, visible text, or coordinates; this changes UI state." + WEBENGINE_TARGET_NOTE, status="implemented", input_schema=_schema({**CDP_TARGET, "uid": {"type": "string", "description": "Element uid from the latest take_snapshot result."}, "selector": {"type": "string"}, "text": {"type": "string"}, "x": {"type": "number"}, "y": {"type": "number"}, "button": {"type": "string", "enum": ["left", "middle", "right", "none"]}, "clickCount": {"type": "integer", "minimum": 1}})),
-    _entry("anki_webengine_type_text", "dev_exec", "Type text into an Anki Qt WebEngine CDP page, optionally focusing by latest snapshot uid or selector first; this changes UI state." + WEBENGINE_TARGET_NOTE, status="implemented", input_schema=_schema({**CDP_TARGET, "text": {"type": "string", "minLength": 1}, "uid": {"type": "string", "description": "Element uid from the latest take_snapshot result."}, "selector": {"type": "string"}, "clear": {"type": "boolean"}}, ["text"])),
-    _entry("anki_webengine_press_key", "dev_exec", "Dispatch a keyboard press to an Anki Qt WebEngine CDP page; this changes UI state." + WEBENGINE_TARGET_NOTE, status="implemented", input_schema=_schema({**CDP_TARGET, "key": {"type": "string", "minLength": 1}, "code": {"type": "string"}, "modifiers": {"type": "integer", "minimum": 0}, "windowsVirtualKeyCode": {"type": "integer", "minimum": 0}}, ["key"])),
-    _entry("anki_webengine_wait_for", "dev_exec", "Wait for a selector, text, title, URL substring, or JavaScript expression in an Anki Qt WebEngine CDP page; expressions can change UI state." + WEBENGINE_TARGET_NOTE, status="implemented", input_schema=_schema({**CDP_TARGET, "selector": {"type": "string"}, "text": {"type": "string"}, "expression": {"type": "string"}, "pollIntervalSeconds": {"type": "number", "minimum": 0.01}})),
-    _entry("anki_webengine_send_cdp_command", "dev_exec", "Send one raw CDP command to an Anki Qt WebEngine page; this can change UI state." + WEBENGINE_TARGET_NOTE, status="implemented", input_schema=_schema({**CDP_TARGET, "method": {"type": "string", "minLength": 1}, "params": {"type": "object"}}, ["method"])),
 )
 
 

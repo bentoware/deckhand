@@ -3,10 +3,12 @@ from __future__ import annotations
 import importlib.util
 import contextlib
 import io
+import os
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,7 +59,7 @@ class BuildSystemTests(unittest.TestCase):
                 [build.sys.executable, "scripts/generate_mcp_catalog.py", "--check"],
                 [build.sys.executable, "scripts/check_tool_surface.py"],
                 [build.sys.executable, "-m", "unittest", "discover", "-s", "tests"],
-                ["cargo", "test", "-p", "deckhand-server"],
+                ["cargo", "test", "-p", "deckhand-server", "--", "--test-threads=1"],
             ],
         )
 
@@ -214,12 +216,64 @@ class BuildSystemTests(unittest.TestCase):
         self.assertIn("__init__.py", names)
         self.assertIn("config.json", names)
         self.assertIn("deckhand/webengine_tools.py", names)
+        self.assertIn("web/__init__.py", names)
         self.assertTrue(all("deckhand/anki_lens/" not in name for name in names))
         self.assertIn(f"bin/{build.platform_tag()}/{build.SERVER_BINARY}", names)
         self.assertNotIn("deckhand/web/manager.html", names)
         self.assertNotIn("deckhand/web/projects.html", names)
         self.assertTrue(all("__pycache__" not in name for name in names))
         self.assertTrue(all(not name.endswith((".pyc", ".pyo")) for name in names))
+
+    def test_package_addon_bundles_skills_from_configured_roots(self) -> None:
+        build = load_build()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            output = root / "deckhand.ankiaddon"
+            server = root / "target" / "release" / build.SERVER_BINARY
+            server.parent.mkdir(parents=True, exist_ok=True)
+            server.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            skills_root = root / "bundled-skills"
+            skill_dir = skills_root / "dh-demo"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text("# Demo\n", encoding="utf-8")
+            (skills_root / "not-a-skill").mkdir()
+
+            original_run = build.subprocess.run
+            original_built_server_path = build.built_server_path
+            build.subprocess.run = lambda command, cwd, check: None
+            build.built_server_path = lambda release=True: server
+            try:
+                with mock.patch.dict(os.environ, {build.SKILLS_DIRS_ENV: str(skills_root)}):
+                    build.package_addon(output, skip_build=True)
+            finally:
+                build.subprocess.run = original_run
+                build.built_server_path = original_built_server_path
+
+            with zipfile.ZipFile(output) as archive:
+                names = set(archive.namelist())
+
+        self.assertIn("skills/dh-demo/SKILL.md", names)
+        self.assertTrue(all(not name.startswith("skills/not-a-skill") for name in names))
+
+    def test_bundled_skill_sources_prefer_first_root_for_duplicates(self) -> None:
+        build = load_build()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            first = Path(temp_dir) / "first"
+            second = Path(temp_dir) / "second"
+            for root in (first, second):
+                skill = root / "dh-demo"
+                skill.mkdir(parents=True)
+                (skill / "SKILL.md").write_text(f"# from {root.name}\n", encoding="utf-8")
+            (second / "dh-extra").mkdir()
+            (second / "dh-extra" / "SKILL.md").write_text("# extra\n", encoding="utf-8")
+
+            with mock.patch.dict(os.environ, {build.SKILLS_DIRS_ENV: f"{first}:{second}"}):
+                sources = build.bundled_skill_sources()
+
+            self.assertEqual(sorted(sources), ["dh-demo", "dh-extra"])
+            self.assertEqual(sources["dh-demo"], first / "dh-demo")
 
     def test_package_addon_excludes_legacy_manager_and_projects_pages(self) -> None:
         build = load_build()

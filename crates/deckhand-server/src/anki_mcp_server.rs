@@ -17,6 +17,7 @@ use std::{
 use crate::server_shell::{bridge_hub, mcp_tool_inventory, BridgeHub, McpTool};
 
 pub const MCP_SERVER_NAME: &str = "deckhand";
+pub const MCP_SERVER_INSTRUCTIONS: &str = "Deckhand controls a live, running Anki instance. Use anki_run_python for anything involving cards, decks, notes, reviews, quizzes, stats, add-ons, or inspecting and driving Anki's UI; it runs Python inside Anki with mw/aqt access and includes deckhand.web for screenshots, clicking, and reading rendered cards. Use anki_runtime_info for a quick Anki status or health check.";
 
 pub fn tools_list_payload(tools: &[McpTool]) -> Value {
     json!({
@@ -99,9 +100,12 @@ impl Default for DeckhandMcpServer {
 
 impl ServerHandler for DeckhandMcpServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_server_info(
-            Implementation::new(MCP_SERVER_NAME, env!("CARGO_PKG_VERSION")),
-        )
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(Implementation::new(
+                MCP_SERVER_NAME,
+                env!("CARGO_PKG_VERSION"),
+            ))
+            .with_instructions(MCP_SERVER_INSTRUCTIONS)
     }
 
     async fn list_tools(
@@ -247,22 +251,25 @@ mod tests {
             .unwrap();
         let execute = tools
             .iter()
-            .find(|tool| tool.name == "anki_execute")
+            .find(|tool| tool.name == "anki_run_python")
             .unwrap();
-        let status = tools
+        let deck_list = tools
             .iter()
-            .find(|tool| tool.name == "anki_webengine_status")
+            .find(|tool| tool.name == "anki_deck_list")
             .unwrap();
 
         assert_eq!(create.annotations["readOnlyHint"], false);
         assert_eq!(create.annotations["destructiveHint"], false);
         assert_eq!(execute.annotations["destructiveHint"], true);
-        assert_eq!(status.annotations["readOnlyHint"], true);
-        assert_eq!(status.annotations["idempotentHint"], true);
+        assert_eq!(deck_list.annotations["readOnlyHint"], true);
+        assert_eq!(deck_list.annotations["idempotentHint"], true);
         assert!(create.input_schema["properties"].get("approved").is_none());
         assert!(execute.input_schema["properties"].get("approved").is_none());
+        assert!(execute.input_schema["properties"]
+            .get("resultFilePath")
+            .is_some());
         assert!(is_anki_mcp_tool("anki_app_get_state"));
-        assert!(is_anki_mcp_tool("anki_execute"));
+        assert!(is_anki_mcp_tool("anki_run_python"));
         assert!(!is_anki_mcp_tool("other.exec.run"));
         assert!(!is_anki_mcp_tool("anki.note.search"));
     }
@@ -280,7 +287,7 @@ mod tests {
         assert!(names.contains("anki_app_get_state"));
         assert!(!names.contains("anki_context_get_current"));
         assert!(names.contains("anki_note_search"));
-        assert!(names.contains("anki_execute"));
+        assert!(names.contains("anki_run_python"));
         assert!(names.iter().all(|name| name
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')));
@@ -306,6 +313,7 @@ mod tests {
 
         assert_eq!(info.server_info.name, MCP_SERVER_NAME);
         assert!(info.capabilities.tools.is_some());
+        assert_eq!(info.instructions.as_deref(), Some(MCP_SERVER_INSTRUCTIONS));
     }
 
     #[tokio::test]
@@ -326,7 +334,7 @@ mod tests {
     async fn rmcp_call_accepts_canonical_underscore_tool_names() {
         let error = call_mcp_tool(
             BridgeHub::default(),
-            "anki_execute".to_string(),
+            "anki_run_python".to_string(),
             json!({"deck":"Deckhand Smoke","model":"Basic","fields":{"Front":"rmcp","Back":"preview"}}),
         )
         .await

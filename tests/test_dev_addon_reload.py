@@ -123,7 +123,7 @@ class DevAddonReloadTests(unittest.TestCase):
         self.assertIn("anki_app_get_state", names)
         self.assertNotIn("anki_context_get_current", names)
         self.assertIn("anki_note_search", names)
-        self.assertIn("anki_execute", names)
+        self.assertIn("anki_run_python", names)
         self.assertNotIn("anki_review_answer_current", names)
         self.assertTrue(all(name.startswith("anki_") for name in names))
         self.assertTrue(all(str(Path.home()) not in tool["description"] for tool in generated["tools"]))

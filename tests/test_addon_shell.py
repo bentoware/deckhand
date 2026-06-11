@@ -4,6 +4,8 @@ import json
 import os
 import socket
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -27,9 +29,17 @@ from deckhand import companion
 from deckhand import media_tools
 from deckhand import runtime_tools
 from deckhand import structure_tools
+from deckhand import settings
+from deckhand import skills
+from deckhand import skills_updates
+from deckhand import state_paths
 from deckhand import tool_visibility
+from deckhand import updates
+from deckhand import welcome
+from deckhand import web
 from deckhand import webengine_tools
 from deckhand.direct_executor import DirectExecutor
+from deckhand.version import ADDON_VERSION
 
 
 class AddonShellTests(unittest.TestCase):
@@ -49,7 +59,7 @@ class AddonShellTests(unittest.TestCase):
     def test_capability_payload_marks_internal_bridge_path(self):
         payload = capability_payload()
         self.assertEqual(payload["paths"], ["safe_bridge"])
-        self.assertIn("anki_execute", {tool["name"] for tool in payload["tools"]})
+        self.assertIn("anki_run_python", {tool["name"] for tool in payload["tools"]})
         self.assertIn("catalog", payload)
         self.assertEqual(
             len(payload["tools"]),
@@ -65,7 +75,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("anki_app_get_state", names)
         self.assertNotIn("anki_context_get_current", names)
         self.assertIn("anki_note_search", names)
-        self.assertIn("anki_execute", names)
+        self.assertIn("anki_run_python", names)
         self.assertNotIn("anki_review_answer_current", names)
         self.assertNotIn("anki_bridge_registry", names)
         self.assertNotIn("anki_bridge_call", names)
@@ -82,9 +92,9 @@ class AddonShellTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "tool-visibility.json"
             with mock.patch.object(tool_visibility, "VISIBILITY_PATH", path):
-                visible = tool_visibility.visible_tool_names(["anki_deck_list", "anki_execute"])
+                visible = tool_visibility.visible_tool_names(["anki_deck_list", "anki_run_python"])
 
-        self.assertEqual(visible, ["anki_deck_list", "anki_execute"])
+        self.assertEqual(visible, ["anki_deck_list", "anki_run_python"])
 
     def test_tool_visibility_template_filters_capability_payload(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -94,14 +104,12 @@ class AddonShellTests(unittest.TestCase):
                 payload = anki_bridge_capability_payload()
 
         names = {tool["name"] for tool in payload["tools"]}
-        self.assertIn("anki_execute", names)
+        self.assertIn("anki_run_python", names)
         self.assertIn("anki_runtime_info", names)
-        self.assertIn("anki_webengine_take_snapshot", names)
-        self.assertIn("anki_webengine_click", names)
         self.assertNotIn("anki_note_search", names)
         self.assertNotIn("anki_card_preview", names)
         self.assertNotIn("anki_deck_list", names)
-        self.assertTrue(all(name in {"anki_execute", "anki_runtime_info"} or name.startswith("anki_webengine_") for name in names))
+        self.assertEqual(names, {"anki_run_python", "anki_runtime_info"})
 
     def test_runtime_info_reports_compact_environment_context(self):
         collection = SimpleNamespace(
@@ -238,6 +246,10 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("QTWEBENGINE_REMOTE_DEBUGGING=9333", joined)
         self.assertIn("launcher", joined)
         self.assertIn("pkill -f 'aqt.run", joined)
+        # Must poll for the old process to exit, not sleep a fixed amount:
+        # the launcher reuses a still-running instance otherwise.
+        self.assertIn("for _ in $(seq 1 30)", joined)
+        self.assertNotIn("sleep 2", joined)
 
     def test_management_uses_anki_launcher_by_default(self):
         path = management.anki_executable_path()
@@ -257,7 +269,7 @@ class AddonShellTests(unittest.TestCase):
             "health": {"healthy": True},
         }
         try:
-            snapshot = management.management_snapshot(["anki_execute"])
+            snapshot = management.management_snapshot(["anki_run_python"])
         finally:
             management.companion.runtime_status = original_runtime_status
 
@@ -265,7 +277,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertEqual(snapshot["companion"]["runtime"]["pid"], 123)
         self.assertNotIn("features", snapshot)
         self.assertIn("ankiBridge", snapshot["companion"])
-        self.assertEqual(snapshot["ankiTools"], ["anki_execute"])
+        self.assertEqual(snapshot["ankiTools"], ["anki_run_python"])
         self.assertEqual(snapshot["toolCount"], 1)
 
     def test_companion_uses_bundled_server_path_for_platform(self):
@@ -408,7 +420,6 @@ class AddonShellTests(unittest.TestCase):
         )
         self.assertEqual(management.BANNER_PRIMARY_ACTION, "Restart Anki for Deckhand")
         self.assertEqual(management.BANNER_DISMISS_ACTION, "Not now")
-        self.assertEqual(management.CONNECTED_DISMISS_ACTION, "Dismiss")
         self.assertIn("local debugging port", management.BANNER_BODY)
         self.assertIn("deck", management.BANNER_BODY)
         self.assertIn("reviewer", management.BANNER_BODY)
@@ -416,9 +427,6 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("editor", management.BANNER_BODY)
         self.assertNotIn("CDP", management.BANNER_TITLE)
         self.assertNotIn("CDP", management.BANNER_PRIMARY_ACTION)
-        self.assertEqual(management.CONNECTED_TITLE, "Deckhand is connected to Anki")
-        self.assertIn("Extension running", management.CONNECTED_SUMMARY)
-        self.assertIn("deck", management.CONNECTED_DETAILS)
 
     def test_cdp_banner_has_collapsed_learn_more_details(self):
         source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
@@ -426,16 +434,23 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn('learn_more = QPushButton("Learn more")', source)
         self.assertIn("details.setVisible(False)", source)
         self.assertIn('learn_more.setText("Show less" if expanded else "Learn more")', source)
-        self.assertIn("if not enabled:", source)
-        self.assertIn("CONNECTED_DISMISS_ACTION if enabled else BANNER_DISMISS_ACTION", source)
 
-    def test_cdp_banner_shows_connected_state_when_debug_port_is_open(self):
+    def test_cdp_banner_only_shows_when_action_is_needed(self):
         source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
+        banner_body = source[source.index("def maybe_show_cdp_banner") : source.index("def _make_cdp_banner_widget")]
 
-        self.assertNotIn('if status["open"]:\n        return', source)
-        self.assertIn("CONNECTED_TITLE if enabled else BANNER_TITLE", source)
-        self.assertIn("CONNECTED_SUMMARY if enabled else BANNER_SUMMARY", source)
-        self.assertIn("enabled=bool(status[\"open\"])", source)
+        self.assertIn("if settings.cdp_banner_dismissed():", banner_body)
+        self.assertIn('if status["open"]:', banner_body)
+        self.assertNotIn("CONNECTED_TITLE", source)
+        self.assertIn("settings.set_cdp_banner_dismissed(True)", source)
+
+    def test_cdp_banner_dismissal_persists_across_sessions(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXTENSION_STATE_ROOT": temp_dir}):
+                self.assertFalse(settings.cdp_banner_dismissed())
+                management.dismiss_cdp_banner()
+                self.assertTrue(settings.cdp_banner_dismissed())
+        management._banner_dismissed = False
 
     def test_lens_inspector_is_removed_from_management(self):
         config = json.loads((ADDON / "config.json").read_text(encoding="utf-8"))
@@ -449,16 +464,27 @@ class AddonShellTests(unittest.TestCase):
         self.assertNotIn('QCheckBox("Enable Lens Inspector")', management_body)
         self.assertIn('dialog.setWindowTitle("Deckhand")', management_body)
         self.assertIn('QPushButton("Restart helper")', management_body)
-        self.assertIn('_section_title("MCP Connection")', management_body)
         self.assertIn('_section_title("Capabilities")', management_body)
         self.assertIn('QLineEdit(mcp_url)', management_body)
         self.assertIn('QPushButton("Copy")', management_body)
         self.assertIn("QGuiApplication.clipboard()", management_body)
         self.assertIn('QPushButton("Developer Panel...")', management_body)
-        self.assertNotIn("QTextEdit", management_body)
         self.assertNotIn("QGroupBox", management_body)
         self.assertNotIn("def show_developer_dialog", management_source)
         self.assertNotIn("anki_lens", management_source)
+
+    def test_management_dialog_has_user_facing_tabs(self):
+        source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
+
+        self.assertIn('tabs.addTab(_build_connect_tab(tabs, logger=logger), "Connect")', source)
+        self.assertIn('tabs.addTab(_build_status_tab(tabs, anki_tools, logger=logger), "Status")', source)
+        self.assertIn('tabs.addTab(_build_server_tab(tabs, logger=logger), "Server")', source)
+        self.assertIn('tabs.addTab(_build_skills_tab(tabs, logger=logger), "Skills")', source)
+        self.assertIn('QPushButton("Test connection")', source)
+        self.assertIn('QPushButton("Start helper")', source)
+        self.assertIn('QPushButton("Stop helper")', source)
+        self.assertIn('QPushButton("Open logs folder")', source)
+        self.assertIn('QPushButton("Install skills for Claude Code")', source)
 
     def test_developer_panel_exposes_effective_tool_inspector(self):
         source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
@@ -477,17 +503,17 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("QPlainTextEdit", source)
 
     def test_tool_view_models_join_live_tools_with_catalog_metadata(self):
-        models = management.tool_view_models(["anki_execute", "anki_webengine_status", "anki_removed_prototype"])
+        models = management.tool_view_models(["anki_run_python", "anki_runtime_info", "anki_removed_prototype"])
         by_name = {model["name"]: model for model in models}
 
-        self.assertEqual([model["name"] for model in models], ["anki_execute", "anki_removed_prototype", "anki_webengine_status"])
-        self.assertEqual(by_name["anki_execute"]["namespace"], "anki_execute")
-        self.assertIn("Execute Python inside Anki", by_name["anki_execute"]["description"])
-        self.assertIn("large fields", by_name["anki_execute"]["description"])
-        self.assertIn("caller-chosen local path", by_name["anki_execute"]["description"])
-        self.assertTrue(by_name["anki_execute"]["annotations"]["destructiveHint"])
-        self.assertTrue(by_name["anki_webengine_status"]["annotations"]["readOnlyHint"])
-        self.assertTrue(by_name["anki_webengine_status"]["annotations"]["idempotentHint"])
+        self.assertEqual([model["name"] for model in models], ["anki_removed_prototype", "anki_run_python", "anki_runtime_info"])
+        self.assertEqual(by_name["anki_run_python"]["namespace"], "anki_run")
+        self.assertIn("Run Python inside Anki", by_name["anki_run_python"]["description"])
+        self.assertIn("large fields", by_name["anki_run_python"]["description"])
+        self.assertIn("resultFilePath", by_name["anki_run_python"]["description"])
+        self.assertTrue(by_name["anki_run_python"]["annotations"]["destructiveHint"])
+        self.assertTrue(by_name["anki_runtime_info"]["annotations"]["readOnlyHint"])
+        self.assertFalse(by_name["anki_runtime_info"]["annotations"]["destructiveHint"])
         self.assertFalse(by_name["anki_removed_prototype"]["known"])
         self.assertEqual(by_name["anki_removed_prototype"]["description"], "No catalog metadata")
 
@@ -500,6 +526,454 @@ class AddonShellTests(unittest.TestCase):
         self.assertNotIn("Claude Desktop", instructions)
         self.assertNotIn("Cursor", instructions)
         self.assertNotIn("VS Code", instructions)
+
+    def test_settings_persist_across_reads(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXTENSION_STATE_ROOT": temp_dir}):
+                self.assertEqual(settings.companion_port(), settings.DEFAULT_COMPANION_PORT)
+                self.assertTrue(settings.companion_autostart())
+                self.assertFalse(settings.require_mcp_token())
+
+                settings.set_companion_port(29001)
+                settings.set_companion_autostart(False)
+                settings.set_require_mcp_token(True)
+
+                self.assertEqual(settings.companion_port(), 29001)
+                self.assertFalse(settings.companion_autostart())
+                self.assertTrue(settings.require_mcp_token())
+                self.assertEqual(settings.set_companion_port(-5), settings.DEFAULT_COMPANION_PORT)
+
+    def test_settings_persistent_token_is_stable_until_regenerated(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXTENSION_STATE_ROOT": temp_dir}):
+                first = settings.persistent_token()
+                second = settings.persistent_token()
+                regenerated = settings.regenerate_persistent_token()
+
+        self.assertEqual(first, second)
+        self.assertGreater(len(first), 24)
+        self.assertNotEqual(first, regenerated)
+
+    def test_companion_port_prefers_env_over_settings(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXTENSION_STATE_ROOT": temp_dir}):
+                settings.set_companion_port(29002)
+                os.environ.pop("DECKHAND_COMPANION_PORT", None)
+                self.assertEqual(companion.companion_port(), 29002)
+                with mock.patch.dict(os.environ, {"DECKHAND_COMPANION_PORT": "29003"}):
+                    self.assertEqual(companion.companion_port(), 29003)
+
+    def test_companion_respects_autostart_setting_unless_forced(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXTENSION_STATE_ROOT": temp_dir}):
+                settings.set_companion_autostart(False)
+                original_health_status = companion.health_status
+                companion.health_status = lambda: {"healthy": False, "error": "connection refused"}
+                try:
+                    status = companion.ensure_running()
+                finally:
+                    companion.health_status = original_health_status
+
+        self.assertEqual(status["state"], "disabled")
+        self.assertIn("settings", status["detail"])
+
+    def test_companion_start_env_propagates_mcp_token_requirement(self):
+        source = (ADDON / "deckhand" / "companion.py").read_text(encoding="utf-8")
+
+        self.assertIn('"DECKHAND_MCP_REQUIRE_TOKEN": "1" if settings.require_mcp_token() else "0"', source)
+        self.assertIn("settings.persistent_token()", source)
+
+    def test_connect_recipes_cover_target_clients(self):
+        url = "http://127.0.0.1:28765/mcp"
+
+        desktop = management.connect_recipe(management.CLIENT_CLAUDE_DESKTOP, url)
+        self.assertEqual(desktop["snippet"], url)
+        self.assertTrue(any("custom connector" in step for step in desktop["steps"]))
+
+        code = management.connect_recipe(management.CLIENT_CLAUDE_CODE, url)
+        self.assertEqual(code["snippet"], f"claude mcp add --transport http deckhand {url}")
+
+        code_with_token = management.connect_recipe(management.CLIENT_CLAUDE_CODE, url, "tok123")
+        self.assertIn('--header "Authorization: Bearer tok123"', code_with_token["snippet"])
+
+        codex = management.connect_recipe(management.CLIENT_CODEX, url, "tok123")
+        self.assertIn("[mcp_servers.deckhand]", codex["snippet"])
+        self.assertIn(f'url = "{url}"', codex["snippet"])
+        self.assertIn("Bearer tok123", codex["snippet"])
+
+        other = management.connect_recipe("unknown-client", url)
+        self.assertEqual(other["snippet"], url)
+        self.assertTrue(any("Streamable HTTP" in step for step in other["steps"]))
+
+    def test_claude_desktop_recipe_warns_when_token_required(self):
+        recipe = management.connect_recipe(management.CLIENT_CLAUDE_DESKTOP, "http://127.0.0.1:28765/mcp", "tok123")
+
+        self.assertTrue(any("Require access token" in step for step in recipe["steps"]))
+        self.assertNotIn("tok123", recipe["snippet"])
+
+    def test_connection_checks_map_failures_to_next_actions(self):
+        original_health_status = management.companion.health_status
+        management.companion.health_status = lambda: {"healthy": False, "error": "connection refused"}
+        fake_bridge = SimpleNamespace(to_dict=lambda: {"state": "disconnected", "detail": "no socket"})
+        try:
+            with mock.patch.object(management, "bridge_status", fake_bridge):
+                with mock.patch.object(management, "cdp_status", lambda: {"open": False, "port": 9222}):
+                    checks = management.run_connection_checks()
+        finally:
+            management.companion.health_status = original_health_status
+
+        by_name = {check["name"]: check for check in checks}
+        self.assertFalse(by_name["Local helper"]["ok"])
+        self.assertIn("Server tab", by_name["Local helper"]["action"])
+        self.assertFalse(by_name["Anki bridge"]["ok"])
+        self.assertTrue(by_name["WebEngine control"]["optional"])
+
+        report = management.format_connection_checks(checks)
+        self.assertIn("[FAIL] Local helper", report)
+        self.assertIn("Next:", report)
+        self.assertIn("[SKIP] WebEngine control", report)
+        self.assertNotIn("Everything required is working", report)
+
+    def test_connection_checks_pass_when_everything_is_healthy(self):
+        original_health_status = management.companion.health_status
+        management.companion.health_status = lambda: {
+            "healthy": True,
+            "compatible": True,
+            "url": "http://127.0.0.1:28765/status",
+        }
+        fake_bridge = SimpleNamespace(to_dict=lambda: {"state": "connected", "detail": "paired"})
+        try:
+            with mock.patch.object(management, "bridge_status", fake_bridge):
+                with mock.patch.object(management, "cdp_status", lambda: {"open": True, "port": 9222}):
+                    checks = management.run_connection_checks()
+        finally:
+            management.companion.health_status = original_health_status
+
+        self.assertTrue(all(check["ok"] for check in checks))
+        report = management.format_connection_checks(checks)
+        self.assertIn("Everything required is working", report)
+
+    def test_skills_install_update_and_user_edit_protection(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_root = Path(temp_dir) / "bundled"
+            target_root = Path(temp_dir) / "claude-skills"
+            skill_dir = source_root / "dh-test"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text(
+                '---\nname: dh-test\ndescription: "Test skill"\n---\n\n# Test\n', encoding="utf-8"
+            )
+
+            installed = skills.install_skill(skill_dir, target_root)
+            self.assertEqual(installed["status"], skills.STATUS_INSTALLED)
+            self.assertTrue((target_root / "dh-test" / "SKILL.md").exists())
+            self.assertTrue((target_root / "dh-test" / skills.MANIFEST_FILENAME).exists())
+
+            unchanged = skills.install_skill(skill_dir, target_root)
+            self.assertEqual(unchanged["status"], skills.STATUS_UP_TO_DATE)
+
+            (skill_dir / "SKILL.md").write_text("updated source\n", encoding="utf-8")
+            updated = skills.install_skill(skill_dir, target_root)
+            self.assertEqual(updated["status"], skills.STATUS_UPDATED)
+
+            (target_root / "dh-test" / "SKILL.md").write_text("user edit\n", encoding="utf-8")
+            (skill_dir / "SKILL.md").write_text("newer source\n", encoding="utf-8")
+            skipped = skills.install_skill(skill_dir, target_root)
+            self.assertEqual(skipped["status"], skills.STATUS_SKIPPED_MODIFIED)
+            self.assertEqual((target_root / "dh-test" / "SKILL.md").read_text(encoding="utf-8"), "user edit\n")
+
+            forced = skills.install_skill(skill_dir, target_root, force=True)
+            self.assertEqual(forced["status"], skills.STATUS_UPDATED)
+
+    def test_skills_never_adopt_unmanaged_directories(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_root = Path(temp_dir) / "bundled"
+            target_root = Path(temp_dir) / "claude-skills"
+            skill_dir = source_root / "dh-test"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text("# Test\n", encoding="utf-8")
+            existing = target_root / "dh-test"
+            existing.mkdir(parents=True)
+            (existing / "SKILL.md").write_text("someone else's skill\n", encoding="utf-8")
+
+            result = skills.install_skill(skill_dir, target_root)
+
+        self.assertEqual(result["status"], skills.STATUS_SKIPPED_UNMANAGED)
+
+    def test_addon_version_is_single_sourced(self):
+        manifest = json.loads((ADDON / "manifest.json").read_text(encoding="utf-8"))
+        addon_source = (ADDON / "deckhand" / "addon.py").read_text(encoding="utf-8")
+
+        self.assertEqual(manifest["human_version"], ADDON_VERSION)
+        self.assertIn('"addonVersion": ADDON_VERSION,', addon_source)
+        self.assertNotIn('"addonVersion": "0.', addon_source)
+
+    def test_update_version_comparison_handles_tags_and_suffixes(self):
+        self.assertTrue(updates.is_newer("0.2.0", "0.1.0"))
+        self.assertTrue(updates.is_newer("v1.0.0", "0.9.9"))
+        self.assertTrue(updates.is_newer("0.1.1-beta", "0.1.0"))
+        self.assertFalse(updates.is_newer("0.1.0", "0.1.0"))
+        self.assertFalse(updates.is_newer("0.0.9", "0.1.0"))
+        self.assertFalse(updates.is_newer("", "0.1.0"))
+
+    def test_update_check_respects_disabled_and_throttle(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXTENSION_STATE_ROOT": temp_dir}):
+                settings.set_update_check_enabled(False)
+                self.assertEqual(updates.check_for_update()["reason"], "disabled")
+
+                settings.set_update_check_enabled(True)
+                settings.set_last_update_check_ms(int(time.time() * 1000))
+                self.assertEqual(updates.check_for_update()["reason"], "throttled")
+
+    def test_update_check_reports_newer_release_and_swallows_errors(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXTENSION_STATE_ROOT": temp_dir}):
+                with mock.patch.object(
+                    updates,
+                    "fetch_latest_release",
+                    lambda timeout=5.0: {"tag": "v99.0.0", "url": "https://example.test/release", "name": "v99"},
+                ):
+                    result = updates.check_for_update(force=True)
+                self.assertTrue(result["updateAvailable"])
+                self.assertEqual(result["latestVersion"], "99.0.0")
+                self.assertEqual(result["url"], "https://example.test/release")
+
+                def boom(timeout=5.0):
+                    raise OSError("offline")
+
+                with mock.patch.object(updates, "fetch_latest_release", boom):
+                    failed = updates.check_for_update(force=True)
+                self.assertTrue(failed["checked"])
+                self.assertFalse(failed["updateAvailable"])
+                self.assertIn("offline", failed["error"])
+
+    def test_about_info_reports_versions_and_paths(self):
+        original_health_status = management.companion.health_status
+        management.companion.health_status = lambda: {"healthy": True, "version": "0.1.0"}
+        try:
+            info = management.about_info()
+        finally:
+            management.companion.health_status = original_health_status
+
+        self.assertEqual(info["addonVersion"], ADDON_VERSION)
+        self.assertEqual(info["companionVersion"], "0.1.0")
+        self.assertIn("settings.json", info["settingsPath"])
+        self.assertTrue(info["platform"])
+
+    def test_format_diagnostics_is_pasteable_json(self):
+        original_health_status = management.companion.health_status
+        management.companion.health_status = lambda: {
+            "healthy": True,
+            "compatible": True,
+            "version": "0.1.0",
+            "url": "http://127.0.0.1:28765/status",
+        }
+        fake_bridge = SimpleNamespace(to_dict=lambda: {"state": "connected", "detail": "paired"})
+        try:
+            with mock.patch.object(management, "bridge_status", fake_bridge):
+                with mock.patch.object(management, "cdp_status", lambda: {"open": False, "port": 9222}):
+                    diagnostics = management.format_diagnostics()
+        finally:
+            management.companion.health_status = original_health_status
+
+        payload = json.loads(diagnostics)
+        self.assertEqual(payload["about"]["addonVersion"], ADDON_VERSION)
+        self.assertIn("companionPort", payload["settings"])
+        self.assertEqual(payload["checks"][0]["name"], "Local helper")
+
+    def test_management_dialog_includes_about_tab(self):
+        source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
+
+        self.assertIn('tabs.addTab(_build_about_tab(tabs, logger=logger), "About")', source)
+        self.assertIn('QPushButton("Check for updates")', source)
+        self.assertIn('QPushButton("Copy diagnostics")', source)
+
+    def test_addon_setup_starts_background_update_check(self):
+        source = (ADDON / "deckhand" / "addon.py").read_text(encoding="utf-8")
+
+        self.assertIn("updates.start_background_check(mw, logger=_log)", source)
+
+    def test_default_state_root_is_platform_appropriate(self):
+        home = Path("/home/example")
+
+        mac = state_paths.default_state_root(home=home, system="Darwin")
+        self.assertEqual(mac, home / "Library" / "Application Support" / "Deckhand" / "state")
+
+        with mock.patch.dict(os.environ, {"APPDATA": "/win/appdata"}):
+            windows = state_paths.default_state_root(home=home, system="Windows")
+        self.assertEqual(windows, Path("/win/appdata") / "Deckhand" / "state")
+
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("XDG_DATA_HOME", None)
+            linux = state_paths.default_state_root(home=home, system="Linux")
+        self.assertEqual(linux, home / ".local" / "share" / "deckhand" / "state")
+
+    def test_state_root_never_defaults_to_dev_checkout_on_user_machines(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("DECKHAND_ANKI_EXTENSION_STATE_ROOT", None)
+            with mock.patch.object(state_paths, "LEGACY_DEV_STATE_ROOT", Path("/nonexistent/deckhand-state")):
+                root = state_paths.state_root()
+
+        self.assertEqual(root, state_paths.default_state_root())
+        self.assertNotIn("github.com", str(root))
+
+    def test_ankiweb_installs_skip_github_update_checks(self):
+        self.assertTrue(updates.is_ankiweb_install(Path("/addons21/1234567890")))
+        self.assertFalse(updates.is_ankiweb_install(Path("/addons21/deckhand")))
+
+        events: list[tuple[str, dict]] = []
+        with mock.patch.object(updates, "is_ankiweb_install", lambda package_root=None: True):
+            updates.start_background_check(mw=None, logger=lambda event, **payload: events.append((event, payload)))
+
+        self.assertEqual(events, [("updates.check_skipped", {"reason": "ankiweb_install"})])
+
+    def test_about_tab_hides_github_update_button_for_ankiweb_installs(self):
+        source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
+
+        self.assertIn("if updates.is_ankiweb_install():", source)
+        self.assertIn("check_button.setVisible(False)", source)
+        self.assertIn("Check for Updates", source)
+
+    def test_codex_skills_root_and_install_targets(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("DECKHAND_CODEX_SKILLS_DIR", None)
+            self.assertEqual(skills.codex_skills_root(), Path.home() / ".codex" / "skills")
+        with mock.patch.dict(os.environ, {"DECKHAND_CODEX_SKILLS_DIR": "/tmp/codex-skills"}):
+            self.assertEqual(skills.codex_skills_root(), Path("/tmp/codex-skills"))
+
+        target_ids = [target["id"] for target in skills.install_targets()]
+        self.assertEqual(target_ids, ["claude_code", "codex"])
+
+    def test_managed_install_roots_only_report_roots_with_manifests(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            claude_root = Path(temp_dir) / "claude"
+            codex_root = Path(temp_dir) / "codex"
+            managed = claude_root / "dh-test"
+            managed.mkdir(parents=True)
+            (managed / skills.MANIFEST_FILENAME).write_text("{}", encoding="utf-8")
+            unmanaged = codex_root / "someone-elses-skill"
+            unmanaged.mkdir(parents=True)
+            (unmanaged / "SKILL.md").write_text("# other\n", encoding="utf-8")
+            with mock.patch.dict(
+                os.environ,
+                {"DECKHAND_CLAUDE_SKILLS_DIR": str(claude_root), "DECKHAND_CODEX_SKILLS_DIR": str(codex_root)},
+            ):
+                roots = skills.managed_install_roots()
+
+        self.assertEqual(roots, [claude_root])
+
+    def test_skills_sync_updates_managed_installs_only(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundled = Path(temp_dir) / "bundled" / "dh-test"
+            bundled.mkdir(parents=True)
+            (bundled / "SKILL.md").write_text("v1\n", encoding="utf-8")
+            target_root = Path(temp_dir) / "claude-skills"
+            skills.install_skill(bundled, target_root)
+
+            remote_root = Path(temp_dir) / "remote-skills"
+            remote_skill = remote_root / "dh-test"
+            remote_skill.mkdir(parents=True)
+            (remote_skill / "SKILL.md").write_text("v2 from repo\n", encoding="utf-8")
+            (remote_root / "dh-brand-new").mkdir()
+            (remote_root / "dh-brand-new" / "SKILL.md").write_text("new skill\n", encoding="utf-8")
+
+            outcomes = skills_updates.sync_installed_skills(remote_root, [target_root])
+
+            self.assertEqual([(o["skill"], o["status"]) for o in outcomes], [("dh-test", skills.STATUS_UPDATED)])
+            self.assertEqual((target_root / "dh-test" / "SKILL.md").read_text(encoding="utf-8"), "v2 from repo\n")
+            self.assertFalse((target_root / "dh-brand-new").exists())
+
+            (target_root / "dh-test" / "SKILL.md").write_text("user edit\n", encoding="utf-8")
+            (remote_skill / "SKILL.md").write_text("v3\n", encoding="utf-8")
+            outcomes = skills_updates.sync_installed_skills(remote_root, [target_root])
+            self.assertEqual(outcomes[0]["status"], skills.STATUS_SKIPPED_MODIFIED)
+            self.assertEqual((target_root / "dh-test" / "SKILL.md").read_text(encoding="utf-8"), "user edit\n")
+
+    def test_skills_check_and_sync_respects_disabled_throttle_and_no_installs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXTENSION_STATE_ROOT": temp_dir}):
+                settings.set_skills_auto_update_enabled(False)
+                self.assertEqual(skills_updates.check_and_sync()["reason"], "disabled")
+
+                settings.set_skills_auto_update_enabled(True)
+                settings.set_last_skills_sync_ms(int(time.time() * 1000))
+                self.assertEqual(skills_updates.check_and_sync()["reason"], "throttled")
+
+                settings.set_last_skills_sync_ms(0)
+                with mock.patch.object(skills, "managed_install_roots", lambda: []):
+                    self.assertEqual(skills_updates.check_and_sync()["reason"], "no_managed_installs")
+
+    def test_skills_tarball_extraction_finds_skills_dir(self):
+        import tarfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir) / "deckhand-skills-main"
+            skill = repo / "skills" / "dh-demo"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text("# demo\n", encoding="utf-8")
+            tarball = Path(temp_dir) / "repo.tar.gz"
+            with tarfile.open(tarball, "w:gz") as archive:
+                archive.add(repo, arcname="deckhand-skills-main")
+
+            extract_dir = Path(temp_dir) / "extracted"
+            extract_dir.mkdir()
+            with tarball.open("rb") as stream:
+                skills_dir = skills_updates.extract_skills_dir(stream, extract_dir)
+
+            self.assertTrue((skills_dir / "dh-demo" / "SKILL.md").is_file())
+
+    def test_welcome_shows_only_once_and_can_be_disabled(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXTENSION_STATE_ROOT": temp_dir}):
+                self.assertTrue(welcome.should_show())
+                with mock.patch.dict(os.environ, {"DECKHAND_WELCOME_DISABLED": "1"}):
+                    self.assertFalse(welcome.should_show())
+
+                events: list[str] = []
+                welcome.maybe_show_welcome(None, logger=lambda event, **payload: events.append(event))
+                self.assertTrue(settings.welcome_shown())
+                self.assertFalse(welcome.should_show())
+
+    def test_addon_setup_wires_welcome_and_skills_sync(self):
+        source = (ADDON / "deckhand" / "addon.py").read_text(encoding="utf-8")
+
+        self.assertIn("welcome.maybe_show_welcome(mw, open_setup=show_management, logger=_log)", source)
+        self.assertIn("skills_updates.start_background_sync(mw, logger=_log)", source)
+
+    def test_skills_tab_offers_codex_and_update_check(self):
+        source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
+
+        self.assertIn('QPushButton("Install skills for Codex")', source)
+        self.assertIn('QPushButton("Check for skill updates")', source)
+        self.assertIn("skills_updates.check_and_sync(force=True)", source)
+
+    def test_format_skill_sync_result_messages(self):
+        self.assertIn("Install skills first", management.format_skill_sync_result({"reason": "no_managed_installs"}))
+        self.assertIn("offline", management.format_skill_sync_result({"checked": True, "error": "offline"}))
+        report = management.format_skill_sync_result(
+            {
+                "checked": True,
+                "updated": 1,
+                "outcomes": [{"skill": "dh-test", "status": skills.STATUS_UPDATED}],
+            }
+        )
+        self.assertIn("1 updated", report)
+        self.assertIn("dh-test: updated", report)
+
+    def test_bundled_skills_discovery_uses_env_roots_and_frontmatter(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "skills"
+            skill_dir = root / "dh-demo"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text(
+                '---\nname: dh-demo\ndescription: "Demo description"\n---\n\n# Demo\n', encoding="utf-8"
+            )
+            (root / "not-a-skill").mkdir()
+            with mock.patch.dict(os.environ, {"DECKHAND_BUNDLED_SKILLS_DIRS": str(root)}):
+                bundled = skills.bundled_skills()
+
+        self.assertEqual([skill["name"] for skill in bundled], ["dh-demo"])
+        self.assertEqual(bundled[0]["description"], "Demo description")
 
     def test_bridge_transport_frame_helpers_round_trip(self):
         left, right = socket.socketpair()
@@ -547,7 +1021,7 @@ class AddonShellTests(unittest.TestCase):
                 "capabilities": {"paths": ["safe_bridge"]},
                 "tools": [
                     {"name": "anki_app_get_state", "risk": "read"},
-                    {"name": "anki_execute", "risk": "dev_exec"},
+                    {"name": "anki_run_python", "risk": "dev_exec"},
                     {"name": "other.sidebar.show_status", "risk": "ui"},
                     {"name": "other.exec.run", "risk": "system_exec"},
                 ],
@@ -561,7 +1035,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertEqual(payload["params"]["pairingToken"], "pairing-token")
         self.assertEqual(len(payload["params"]["tools"]), 2)
         self.assertEqual(payload["params"]["tools"][0]["name"], "anki_app_get_state")
-        self.assertEqual(payload["params"]["tools"][1]["name"], "anki_execute")
+        self.assertEqual(payload["params"]["tools"][1]["name"], "anki_run_python")
         self.assertEqual(payload["params"]["capabilities"]["paths"], ["safe_bridge"])
         self.assertEqual(payload["params"]["profileHash"], "profile-1")
         self.assertEqual(payload["params"]["collectionHash"], "collection-1")
@@ -638,13 +1112,26 @@ class AddonShellTests(unittest.TestCase):
             self.assertTrue(entry.description, entry.name)
 
         entries = {entry.name: entry for entry in command_catalog()}
-        execute_description = entries["anki_execute"].description
+        run_python_description = entries["anki_run_python"].description
         runtime_description = entries["anki_runtime_info"].description
-        self.assertIn("Prefer Anki APIs via mw/aqt", execute_description)
-        self.assertIn("do not edit the collection SQLite database or media folder directly", execute_description)
-        self.assertIn("main Qt thread", execute_description)
-        self.assertIn("WebEngine tools", execute_description)
-        self.assertNotIn("safe anki_execute snippets", runtime_description)
+        self.assertIn("Prefer Anki APIs via mw/aqt", run_python_description)
+        self.assertIn("do not edit the collection SQLite database or media folder directly", run_python_description)
+        self.assertIn("main Qt thread", run_python_description)
+        self.assertIn("deckhand.web", run_python_description)
+        self.assertIn("inspect.getdoc(web)", run_python_description)
+        self.assertIn("web.status()", run_python_description)
+        self.assertIn("web.pages()", run_python_description)
+        self.assertIn('web.page(preferred="main")', run_python_description)
+        self.assertIn("p.snapshot(max_elements=200, max_tree_nodes=250, file=None)", run_python_description)
+        self.assertIn('p.screenshot(file, format="png")', run_python_description)
+        self.assertIn("p.eval(script)", run_python_description)
+        self.assertIn("p.click(uid=..., selector=..., text=..., x=..., y=...)", run_python_description)
+        self.assertIn("p.type(text, uid=..., selector=..., clear=False)", run_python_description)
+        self.assertIn('result = web.page().screenshot("/tmp/anki-card.png")', run_python_description)
+        self.assertIn('result = web.page().html(file="/tmp/anki.html")', run_python_description)
+        self.assertIn('result = web.page().eval("document.body.innerText")', run_python_description)
+        self.assertIn("resultFilePath/resultFormat", run_python_description)
+        self.assertNotIn("safe anki_run_python snippets", runtime_description)
 
     def test_catalog_tracks_current_implemented_tools(self):
         implemented = {
@@ -658,7 +1145,6 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("anki_note_update_fields", implemented)
         self.assertIn("anki_note_add_tag", implemented)
         self.assertIn("anki_runtime_info", implemented)
-        self.assertIn("anki_webengine_status", implemented)
         self.assertNotIn("anki_context_get_deck_browser", implemented)
         self.assertNotIn("anki_media_add_url", implemented)
         self.assertNotIn("anki_browser_search", implemented)
@@ -666,15 +1152,6 @@ class AddonShellTests(unittest.TestCase):
         self.assertNotIn("anki_editor_get_focused_note", implemented)
         self.assertNotIn("anki_editor_set_field", implemented)
         self.assertNotIn("anki_editor_insert_media", implemented)
-        self.assertIn("anki_webengine_list_pages", implemented)
-        self.assertIn("anki_webengine_take_snapshot", implemented)
-        self.assertIn("anki_webengine_take_screenshot", implemented)
-        self.assertIn("anki_webengine_evaluate_script", implemented)
-        self.assertIn("anki_webengine_click", implemented)
-        self.assertIn("anki_webengine_type_text", implemented)
-        self.assertIn("anki_webengine_press_key", implemented)
-        self.assertIn("anki_webengine_wait_for", implemented)
-        self.assertIn("anki_webengine_send_cdp_command", implemented)
         self.assertIn("anki_export_notes", implemented)
         self.assertIn("anki_export_deck_snapshot", implemented)
         self.assertIn("anki_export_deck_package", implemented)
@@ -728,25 +1205,30 @@ class AddonShellTests(unittest.TestCase):
             "anki_dev_diagnostics",
             "anki_webengine_list_console_messages",
             "anki_webengine_list_network_requests",
+            "anki_webengine_status",
+            "anki_webengine_list_pages",
+            "anki_webengine_take_snapshot",
+            "anki_webengine_take_screenshot",
+            "anki_webengine_evaluate_script",
+            "anki_webengine_click",
+            "anki_webengine_type_text",
+            "anki_webengine_press_key",
+            "anki_webengine_wait_for",
+            "anki_webengine_send_cdp_command",
         }
         self.assertTrue(removed.isdisjoint(implemented))
 
-    def test_webengine_catalog_annotations_are_standard_mcp_only(self):
+    def test_webengine_tools_are_not_public_mcp_catalog_entries(self):
         entries = {entry.name: entry for entry in command_catalog()}
 
-        self.assertEqual(entries["anki_webengine_take_snapshot"].risk, "read")
-        self.assertEqual(entries["anki_webengine_take_screenshot"].risk, "read")
-        self.assertEqual(entries["anki_webengine_evaluate_script"].risk, "dev_exec")
-        self.assertEqual(entries["anki_webengine_wait_for"].risk, "dev_exec")
-        self.assertNotIn("approved", entries["anki_webengine_wait_for"].input_schema.properties)
-        self.assertIn("preferredTarget", entries["anki_webengine_take_snapshot"].input_schema.properties)
-        self.assertIn("main webview", entries["anki_webengine_take_snapshot"].description)
+        self.assertIn("anki_run_python", entries)
+        self.assertFalse(any(name.startswith("anki_webengine_") for name in entries))
 
     def test_direct_executor_dispatches_registered_tool(self):
         executor = DirectExecutor()
-        executor.register("anki_execute", lambda args: {"args": args})
+        executor.register("anki_run_python", lambda args: {"args": args})
 
-        result = executor.call("anki_execute", {"ok": True})
+        result = executor.call("anki_run_python", {"ok": True})
 
         self.assertTrue(result.ok)
         self.assertEqual(result.result, {"args": {"ok": True}})
@@ -761,9 +1243,9 @@ class AddonShellTests(unittest.TestCase):
 
     def test_direct_executor_can_unregister_tools(self):
         executor = DirectExecutor()
-        executor.register("anki_execute", lambda _args: {"ok": True})
+        executor.register("anki_run_python", lambda _args: {"ok": True})
 
-        executor.unregister("anki_execute")
+        executor.unregister("anki_run_python")
 
         self.assertEqual(executor.tools(), [])
 
@@ -1024,6 +1506,69 @@ class AddonShellTests(unittest.TestCase):
         self.assertNotIn("ok", pages)
         self.assertNotIn("durationMs", pages)
 
+    def test_web_sdk_page_introspection_and_snapshot_wrapper(self):
+        self.assertIn("Small Anki WebEngine SDK", web.__doc__)
+        self.assertIn("page", [name for name in dir(web) if not name.startswith("_")])
+        with mock.patch.object(webengine_tools, "take_snapshot", return_value={"snapshot": {"text": "ok"}}) as take_snapshot:
+            result = web.page(title="main").snapshot(max_elements=3, max_tree_nodes=4, file="/tmp/snapshot.txt")
+
+        self.assertEqual(result, {"snapshot": {"text": "ok"}})
+        take_snapshot.assert_called_once()
+        args = take_snapshot.call_args.args[0]
+        self.assertEqual(args["preferredTarget"], "main")
+        self.assertEqual(args["title"], "main")
+        self.assertEqual(args["maxElements"], 3)
+        self.assertEqual(args["maxTreeNodes"], 4)
+        self.assertEqual(args["filePath"], "/tmp/snapshot.txt")
+
+    def test_web_sdk_html_writes_file_artifact(self):
+        page = web.page()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "page.html"
+            with mock.patch.object(web.Page, "eval", return_value="<html><body>ok</body></html>"):
+                result = page.html(file=str(path))
+
+            self.assertEqual(path.read_text(encoding="utf-8"), "<html><body>ok</body></html>")
+            self.assertEqual(result["path"], str(path))
+            self.assertEqual(result["format"], "html")
+
+    def test_web_sdk_screenshot_click_and_type_delegate_to_webengine(self):
+        page = web.page(preferred="first", port=9222)
+        with mock.patch.object(webengine_tools, "take_screenshot", return_value={"path": "/tmp/a.png"}) as take_screenshot:
+            self.assertEqual(page.screenshot("/tmp/a.png", format="png"), {"path": "/tmp/a.png"})
+        with mock.patch.object(webengine_tools, "click", return_value={"clicked": True}) as click:
+            self.assertEqual(page.click(selector="#answer"), {"clicked": True})
+        with mock.patch.object(webengine_tools, "type_text", return_value={"textLength": 2}) as type_text:
+            self.assertEqual(page.type("ok", selector="#answer"), {"textLength": 2})
+
+        self.assertEqual(take_screenshot.call_args.args[0]["preferredTarget"], "first")
+        self.assertEqual(take_screenshot.call_args.args[0]["filePath"], "/tmp/a.png")
+        self.assertEqual(click.call_args.args[0]["selector"], "#answer")
+        self.assertEqual(type_text.call_args.args[0]["text"], "ok")
+
+    def test_web_sdk_runs_blocking_cdp_work_off_qt_main_thread(self):
+        main_thread = threading.get_ident()
+        event = threading.Event()
+
+        class FakeApp:
+            process_count = 0
+
+            def processEvents(self):
+                self.process_count += 1
+                event.set()
+
+        app = FakeApp()
+        original = web._qt_app_state
+        web._qt_app_state = lambda: (app, True)
+        try:
+            result = web._run_cdp(lambda: {"thread": threading.get_ident(), "unblocked": event.wait(1)})
+        finally:
+            web._qt_app_state = original
+
+        self.assertNotEqual(result["thread"], main_thread)
+        self.assertTrue(result["unblocked"])
+        self.assertGreater(app.process_count, 0)
+
     def test_bridge_status_updates(self):
         status = BridgeStatus()
         status.update("connected", "test bridge")
@@ -1043,7 +1588,12 @@ class AddonShellTests(unittest.TestCase):
         finally:
             dev_tools._anki_snippet_globals = original
 
-        self.assertEqual(result, {"result": 3})
+        self.assertEqual(result["result"], 3)
+        self.assertTrue(result["resultInline"])
+        self.assertFalse(result["resultTruncated"])
+        self.assertFalse(result["resultOmitted"])
+        self.assertIsNone(result["resultPreview"])
+        self.assertIsNone(result["artifact"])
         self.assertNotIn("requiresApproval", result)
         self.assertNotIn("snippetPreview", result)
         self.assertNotIn("ok", result)
@@ -1079,6 +1629,85 @@ class AddonShellTests(unittest.TestCase):
             dev_tools._anki_snippet_globals = original
 
         self.assertEqual(result["result"], 2)
+
+    def test_snippet_omits_large_result_without_mutating_result_data(self):
+        original = dev_tools._anki_snippet_globals
+        dev_tools._anki_snippet_globals = lambda: {
+            "__builtins__": {"len": len},
+            "mw": object(),
+            "result": None,
+        }
+        try:
+            result = dev_tools.run_python_snippet("result = 'x' * 20", inline_limit_bytes=10)
+        finally:
+            dev_tools._anki_snippet_globals = original
+
+        self.assertIsNone(result["result"])
+        self.assertFalse(result["resultInline"])
+        self.assertFalse(result["resultTruncated"])
+        self.assertTrue(result["resultOmitted"])
+        self.assertIn('"xxxxxxxxxxxxxxxxxxxx"', result["resultPreview"])
+        self.assertIn("rerun with resultFilePath", result["message"])
+
+    def test_snippet_writes_large_result_artifact(self):
+        original = dev_tools._anki_snippet_globals
+        dev_tools._anki_snippet_globals = lambda: {
+            "__builtins__": {"len": len},
+            "mw": object(),
+            "result": None,
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "result.json"
+            try:
+                result = dev_tools.run_python_snippet(
+                    "result = {'text': 'x' * 20}",
+                    result_file_path=str(path),
+                    inline_limit_bytes=1,
+                )
+            finally:
+                dev_tools._anki_snippet_globals = original
+
+            self.assertIsNone(result["result"])
+            self.assertFalse(result["resultInline"])
+            self.assertFalse(result["resultOmitted"])
+            self.assertEqual(result["artifact"]["path"], str(path))
+            self.assertEqual(result["artifact"]["format"], "json")
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {"text": "xxxxxxxxxxxxxxxxxxxx"})
+
+    def test_snippet_text_result_format_artifact(self):
+        original = dev_tools._anki_snippet_globals
+        dev_tools._anki_snippet_globals = lambda: {
+            "__builtins__": {},
+            "mw": object(),
+            "result": None,
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "result.txt"
+            try:
+                result = dev_tools.run_python_snippet(
+                    "result = 'plain text'",
+                    result_file_path=str(path),
+                    result_format="text",
+                )
+            finally:
+                dev_tools._anki_snippet_globals = original
+
+            self.assertEqual(path.read_text(encoding="utf-8"), "plain text")
+            self.assertEqual(result["artifact"]["format"], "text")
+
+    def test_snippet_unserializable_result_falls_back_to_repr(self):
+        original = dev_tools._anki_snippet_globals
+        dev_tools._anki_snippet_globals = lambda: {
+            "__builtins__": {"object": object},
+            "mw": object(),
+            "result": None,
+        }
+        try:
+            result = dev_tools.run_python_snippet("result = object()")
+        finally:
+            dev_tools._anki_snippet_globals = original
+
+        self.assertIn("object object", result["result"])
 
     def test_snippet_blocks_builtin_exit(self):
         original = dev_tools._anki_snippet_globals
