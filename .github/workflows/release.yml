@@ -12,8 +12,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - name: Catalog and tool surface checks
@@ -42,7 +42,7 @@ jobs:
             tag: windows-x86_64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Add cross-compile target
         if: matrix.target != ''
         run: rustup target add ${{ matrix.target }}
@@ -60,7 +60,7 @@ jobs:
           if [[ "${{ matrix.tag }}" == windows-* ]]; then BIN="deckhand-server.exe"; fi
           mkdir -p "out/${{ matrix.tag }}"
           cp "$SRC/$BIN" "out/${{ matrix.tag }}/$BIN"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: server-${{ matrix.tag }}
           path: out
@@ -70,15 +70,15 @@ jobs:
     needs: build-server
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           repository: bentoware/deckhand-skills
           path: deckhand-skills-checkout
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: server-*
           path: bins
@@ -108,7 +108,7 @@ jobs:
             --companion-binary linux-x86_64=bins/linux-x86_64/deckhand-server \
             --companion-binary windows-x86_64=bins/windows-x86_64/deckhand-server.exe
           python scripts/build.py package-mcpb --output dist/Deckhand.mcpb
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: deckhand-ankiaddon
           path: |
