@@ -1,130 +1,54 @@
 ---
 name: deckhand
-description: "Alias triggers: Deckhand, deckhand, Anki, flashcards, cards, notes, decks, review queue, study workflow, PDF to Anki, slides to Anki, med Anki, language learning, weak cards, leeches, cited cards, beauty cards. Use when helping an agent or end user use Deckhand with Anki to inspect live context, create source-grounded cards, improve weak cards, organize decks, or troubleshoot add-on behavior without changing Deckhand source code."
+description: "Deckhand runs like a program with subcommands: create (source → cited cards), check (quality-review cards like a code review), fix (repair weak cards and leeches), organize (decks, tags, duplicates). Alias triggers: Deckhand, Anki, flashcards, cards, notes, decks, PDF to Anki, slides to Anki, med Anki, language learning, weak cards, leeches, check my deck, card quality. Use when helping a user create, check, fix, or organize Anki cards through the live Deckhand MCP server."
 ---
 
 # Deckhand
 
-Use this skill to help a person operate Deckhand inside Anki, reason about flashcards and study workflows, and produce high-quality Anki output through the live Deckhand MCP server.
+Deckhand is a careful set of hands inside the live Anki runtime: inspect first, design well, preview clearly, apply only what the user approves. It runs like a small program with verbs.
 
-Deckhand is not a shortcut around Anki's collection model or the user's source material. Treat it as a careful set of hands inside the live Anki runtime: inspect first, design well, preview clearly, then apply only what the user approves.
+## Dispatch
 
-## Operating Stance
+Treat the first word of the arguments as the verb. Read the matching command file before doing the work:
 
-- Start from the user's study goal: source-to-cards, review repair, language practice, medical study, deck organization, troubleshooting, or card polish.
-- Use ordinary Anki terms: notes, cards, fields, note types, decks, tags, reviews, scheduling, Browser, Editor, and leeches.
-- Use Deckhand MCP read tools before writes when live Anki context matters: current context, profile, deck list, model list, note search/get, card get/preview, Browser selection, and focused editor note.
-- Treat AI as a card-design collaborator, not a source of truth. It can extract, structure, rewrite, critique, and explain; it must not invent citations or silently replace source material.
-- Prefer reversible work first: draft cards, diagnose weak prompts, suggest tags, describe deck searches, or show field-level edits before applying them.
-- Ask before changing collection data, including note text, tags, decks, templates, media, review answers, suspension, due dates, backups, imports, exports, or scheduling.
-- Avoid repository, packaging, or Deckhand source-code instructions unless the user explicitly asks to develop the Deckhand add-on.
+| Verb | Does | Read |
+|---|---|---|
+| `create` | Turn sources (PDFs, slides, pasted text, topics) into cited, rubric-checked cards | [commands/create.md](commands/create.md) |
+| `check` | Quality-review cards the way engineers review code: findings + proposed fixes | [commands/check.md](commands/check.md) |
+| `fix` | Repair weak cards and leeches: diagnose, name the failure, show before/after | [commands/fix.md](commands/fix.md) |
+| `organize` | Decks, tags, duplicates, filtered-deck suggestions | [commands/organize.md](commands/organize.md) |
 
-## Source-To-Anki
+**No verb, unknown verb, or bare invocation** → run the status flow: call `anki_runtime_info`; report what you see in plain language ("Anki is running, profile *Tak*, collection open"); then offer the four verbs with one-line descriptions a non-technical user understands. If Anki isn't running, say so and ask the user to open it — nothing works without it.
 
-For PDFs, papers, readings, webpages, pasted excerpts, notes, and lecture material, use the source as the authority.
+**Natural language routes too**: "make cards from this PDF" → create; "are my cards any good" / "review my deck for quality" → check; "I keep failing these" → fix; "my tags are a mess" → organize.
 
-1. Identify the source, target audience, deck, note type, citation format, and whether Deckhand should inspect existing related cards.
-2. Extract learning objectives before writing cards.
-3. Convert claims into atomic prompts instead of copying paragraphs or slide bullets.
-4. Cite every source-derived card with page, slide, section, heading, filename, URL, DOI, or user-provided source label when available.
-5. Distinguish source claims from memory hooks, analogies, or explanatory bridges.
-6. Preview proposed cards with fields, citation/source, tags, and rationale before creating or updating notes.
+**Study intent is out of scope**: if the user says "review" meaning *study due cards* ("review my due cards", "let's review"), don't run check — explain that Deckhand checks card quality, and studying happens in Anki itself.
 
-Good source cards are faithful, small, and testable. If the source does not support a claim, mark it as source-needed instead of making it sound authoritative.
+## Operating stance
 
-## Slides To Anki
+- Start from the user's study goal, and use ordinary Anki words: notes, cards, fields, note types, decks, tags, leeches.
+- The user is likely not a programmer. Explain what you're about to do in plain language before doing it; never show code unless asked.
+- Read before you write: inspect live context (current deck, existing related cards, note types in use) before proposing anything.
+- AI is a card-design collaborator, not a source of truth: it extracts, structures, rewrites, and critiques; it never invents citations or silently replaces source material.
+- Every card you create or change is judged against [references/rubric.md](references/rubric.md) — the same bar `check` applies to existing cards. Read it whenever drafting or judging cards.
+- For medical, language-learning, or slide material, read [references/domains.md](references/domains.md) for the domain-specific rules.
 
-For slide decks and lecture notes, preserve the instructor's structure while improving the cards.
+## Runtime
 
-- Keep lecture title, section, slide title, and slide number when available.
-- Turn slide bullets into learning targets rather than screenshot-only cards.
-- Use images when the visual relationship is the target: anatomy, pathways, diagrams, charts, maps, or workflows.
-- Split dense slides into multiple cards and optionally add a section overview card.
-- Cite slide number/title on every card when available.
-
-## Medical Anki
-
-Medical and health-science work requires strict grounding.
-
-- Create or edit medical cards only from provided, cited, or Deckhand-accessible source material.
-- Cite every medical card.
-- Do not present general model memory as medical authority.
-- Flag uncertainty, outdated material, conflicting sources, missing clinical context, or source gaps.
-- Prefer educational language over diagnosis or treatment advice.
-- Split cards that mix pathophysiology, diagnosis, management, contraindications, criteria, and exceptions.
-
-Useful medical card patterns include mechanism, discriminator, indication, contraindication, criteria, anatomy, lesion effect, pharmacology, organism, pathology, and image-based identification.
-
-## Language Learning
-
-For foreign-language work, first identify the target language, learner level, native language, and skill direction.
-
-- Recognition: target language to meaning.
-- Production: native language, image, or context to target language.
-- Listening: audio to meaning, transcription, or form.
-- Sentence mining: one target item in a natural sentence.
-- Cloze grammar: one missing form in context.
-- Minimal pairs: contrast sound, spelling, grammar, or meaning.
-- Usage: register, politeness, dialect, collocation, and domain notes.
-
-Prefer real examples and learner-useful context over isolated dictionary entries. Mark uncertain translations or usage notes instead of pretending nuance is settled.
-
-## Weak Cards And Leeches
-
-For weak cards, failed reviews, and leeches, diagnose before rewriting. Treat repeated failure as card-design feedback, not learner failure.
-
-Inspect the current note/card when possible and look for:
-
-- too many facts in one prompt
-- missing context on the front
-- ambiguous wording
-- answer hidden by accidental grammar clues
-- stale or unsupported source material
-- recognition cards where production is needed
-- production cards where recognition is enough
-- interference with similar cards
-- cloze deletions that hide too much or too little
-- low-value cards that should be suspended or tagged for later
-
-Propose fixes such as splitting, rewriting, adding a contrast, adding a mnemonic, adding a source citation, improving examples, retagging, suspending, or changing due state. Show exact field or card changes before applying them.
-
-## Beauty Cards
-
-Beauty cards are polished cards that feel good to review because they are clear, memorable, and well structured. Beauty serves recall; decoration that adds clutter is not an improvement.
-
-Improve:
-
-- front wording and retrieval cues
-- directness of the back answer
-- line breaks, labels, emphasis, and simple hierarchy
-- examples, analogies, etymology, mnemonics, and contrasts
-- source footers or citation fields
-- media suggestions when image or audio truly tests the target better than text
-
-Keep the card atomic. Preserve source meaning. Do not make a pretty card that tests three things or includes unsupported claims.
-
-## Deck Organization
-
-For deck and tag work, keep names predictable and review goals practical.
-
-- Prefer a small stable tag taxonomy over many one-off tags.
-- Recommend searches and filtered decks when they fit better than moving cards.
-- Use deck/model/stat reads before suggesting bulk changes.
-- Preview the exact note/card set and tag/deck changes before applying.
+All Anki access goes through three MCP tools (`anki_runtime_info`, `anki_backup_create`, `anki_run_python`). Read [references/runtime.md](references/runtime.md) before your first `anki_run_python` call — it has the verified patterns, the compact-output rules, and the `deckhand.web` UI driver.
 
 ## Troubleshooting
 
-For user-facing troubleshooting, collect visible Deckhand state, current Anki screen, recent action, expected behavior, actual behavior, and any error text. Give recovery steps first. Suggest development diagnostics only after the user-facing path is exhausted or the user explicitly asks.
+When something seems broken, start with `anki_runtime_info` and the user's own account: current screen, recent action, expected vs actual, any error text. Give recovery steps first; suggest development diagnostics (`deckhand.web`, logs) only after the user-facing path is exhausted or the user asks.
 
-## Collection Safety
+## Collection safety
 
-- Do not edit Anki database files or media folders directly.
-- Use Deckhand or Anki UI/API pathways when a live tool is available.
-- Prefer typed read/export tools for large field, rendered HTML, bulk note, log, or diagnostic output; when custom `anki.execute` inspection is necessary, write a UTF-8 artifact to a caller-chosen local path and return compact metadata such as path, bytes, count, and summary.
-- Confirm the exact scope before bulk edits, imports, exports, deletes, reschedules, tag replacement, media insertion, backups, or template changes.
-- When uncertain, provide a preview list and ask the user to approve applying it.
-- Avoid `anki.execute` and WebEngine development tools unless the user asks for troubleshooting or development work and approves that escalation.
+- Preview before apply, always: show proposed cards or exact field-level before/after diffs, and get the user's approval before any write.
+- Confirm exact scope before bulk operations, and create a backup (`anki_backup_create`) first.
+- Never edit Anki's database files or media folder directly; use `mw.col` / `aqt` APIs via `anki_run_python`.
+- Prefer reversible steps: drafts, diagnoses, and previews before mutations.
+- Don't give repository, packaging, or Deckhand source-code instructions unless the user explicitly asks to develop the Deckhand add-on itself.
 
-## Output Style
+## Output style
 
-Keep responses practical, specific, and close to the user's study context. When drafting cards, show the proposed card content directly with citation/source fields where relevant. When repairing cards, name the failure mode and show exact before/after field changes. When using Deckhand to operate Anki, explain the next action in plain language before calling a mutating tool.
+Stay practical and close to the user's study context. Show proposed cards directly with their citation and tags. Name failure modes when repairing cards. Keep tool output compact — the user wants cards, not logs.
