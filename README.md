@@ -81,6 +81,12 @@ Releases are automated: bump `version.py` + `manifest.json`, write `releases/Rel
 
 [AGPL-3.0-or-later](LICENSE) — the license AnkiWeb expects of add-ons that extend Anki Desktop, and the one that keeps this hull inspectable from stem to stern. Dependency notes live in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+## Backups and AI-assisted changes
+
+Deckhand gives AI assistants careful access to your local Anki collection, but AI-generated suggestions and tool calls can still be wrong. Review changes before applying them, and create an Anki backup before bulk edits, deletes, imports, template changes, or scheduling changes.
+
+Deckhand is provided as-is, without warranty, to the extent permitted by applicable law. The authors and contributors are not liable for lost data, damaged decks, incorrect study material, or other damages arising from use of the software or AI-assisted workflows.
+
 ---
 
 <p align="center"><em>Deckhand doesn't promise magic. It promises better watchkeeping:<br/>clear tools, visible context, and no more blind edits in the dark.</em></p>
