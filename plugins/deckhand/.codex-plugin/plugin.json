@@ -1,0 +1,38 @@
+{
+  "name": "deckhand",
+  "version": "0.1.0",
+  "description": "Deckhand lets agents inspect and operate inside the live Anki Desktop runtime through guarded MCP tools.",
+  "author": {
+    "name": "Bentoware",
+    "url": "https://github.com/bentoware/deckhand"
+  },
+  "homepage": "https://github.com/bentoware/deckhand",
+  "repository": "https://github.com/bentoware/deckhand",
+  "license": "AGPL-3.0-or-later",
+  "keywords": [
+    "deckhand",
+    "anki",
+    "mcp",
+    "flashcards",
+    "addon",
+    "automation",
+    "runtime",
+    "agent"
+  ],
+  "skills": "skills",
+  "interface": {
+    "displayName": "Deckhand",
+    "shortDescription": "Operate inside live Anki",
+    "longDescription": "Use Deckhand to inspect Anki decks, notes, cards, browser/editor state, media, and guarded MCP tools from inside the live Anki Desktop runtime.",
+    "developerName": "Bentoware",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/bentoware/deckhand",
+    "defaultPrompt": [
+      "Inspect my current Anki review context",
+      "Summarize the selected notes in Anki Browser",
+      "Check the Deckhand add-on runtime status"
+    ],
+    "brandColor": "#0f766e"
+  }
+}
