@@ -100,7 +100,6 @@ LEGACY_SOURCE_TOKENS = {
     "companion_auth_header",
     "ToolExecutionError",
     "_resolve_websocket_url",
-    "Claude Desktop",
     "Cursor Settings",
     "VS Code extension",
     "deckhand.safe_bridge.v1",

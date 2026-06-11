@@ -35,7 +35,7 @@ CLIENT_CLAUDE_CODE = "claude_code"
 CLIENT_CODEX = "codex"
 CLIENT_OTHER = "other"
 CONNECT_CLIENTS = [
-    {"id": CLIENT_CLAUDE_DESKTOP, "label": "Desktop connector"},
+    {"id": CLIENT_CLAUDE_DESKTOP, "label": "Claude Desktop"},
     {"id": CLIENT_CLAUDE_CODE, "label": "Claude Code (terminal)"},
     {"id": CLIENT_CODEX, "label": "Codex CLI"},
     {"id": CLIENT_OTHER, "label": "Other MCP client"},
@@ -872,7 +872,7 @@ def connect_recipe(client_id: str, mcp_url: str, token: str | None = None) -> di
             "Drag the Deckhand extension chip below into the Claude Desktop window "
             '(or click "Save extension..." and double-click the saved file).',
             'Click "Install" in Claude\'s dialog. The endpoint is already filled in.',
-            "Alternatively: open your desktop client's connector settings, "
+            "Alternatively: in Claude Desktop open Settings, then Connectors, "
             'click "Add custom connector", and paste the URL below.',
         ]
         if token:
