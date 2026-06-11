@@ -166,6 +166,10 @@ def _install_menu(mw) -> None:
     menu = QMenu("Deckhand", mw)
     menu.setObjectName("deckhand_menu")
 
+    onboarding_action = QAction("Onboarding", mw)
+    onboarding_action.triggered.connect(show_onboarding)
+    menu.addAction(onboarding_action)
+
     management_action = QAction("Management", mw)
     management_action.triggered.connect(show_management)
     menu.addAction(management_action)
@@ -412,6 +416,15 @@ def _bridge_registry() -> dict[str, object]:
         "capabilities": payload,
         "tools": payload["tools"],
     }
+
+
+def show_onboarding() -> None:
+    try:
+        from aqt import mw
+    except Exception as exc:  # pragma: no cover - only meaningful inside Anki/Qt
+        _log("onboarding.unavailable", error=str(exc))
+        return
+    welcome.show_onboarding(mw, open_setup=show_management, logger=_log)
 
 
 def show_management() -> None:

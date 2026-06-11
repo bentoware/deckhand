@@ -4,12 +4,6 @@ import os
 import platform
 from pathlib import Path
 
-# Dev-checkout paths. On end-user machines these don't exist and every
-# consumer guards with is_dir()/fallbacks; keep them so a dev sync keeps
-# using the repo-sibling state instead of the per-user app-data dir.
-PROJECT_ROOT = Path("/Users/thoffman/github.com/bentoware/deckhand")
-LEGACY_DEV_STATE_ROOT = Path("/Users/thoffman/github.com/bentoware/deckhand-state")
-
 
 def default_state_root(home: Path | None = None, system: str | None = None) -> Path:
     home = home or Path.home()
@@ -29,8 +23,6 @@ def state_root() -> Path:
     configured = os.environ.get("DECKHAND_ANKI_EXTENSION_STATE_ROOT")
     if configured:
         return Path(configured).expanduser().resolve()
-    if LEGACY_DEV_STATE_ROOT.is_dir():
-        return LEGACY_DEV_STATE_ROOT
     return default_state_root()
 
 

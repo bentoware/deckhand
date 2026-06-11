@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from . import companion
+from . import mcpb
 from . import settings
 from . import skills
 from . import updates
@@ -346,17 +347,84 @@ def _build_connect_tab(parent: Any, logger=None) -> Any:
     snippet_row.addStretch(1)
     snippet_row.addWidget(copy_snippet_button)
     layout.addLayout(snippet_row)
+
+    mcpb_row_widget = _make_mcpb_section(widget, logger=logger)
+    layout.addWidget(mcpb_row_widget)
     layout.addStretch(1)
 
     def render(_index: int = 0) -> None:
-        recipe = connect_recipe(str(picker.currentData()), mcp_url, token)
+        client_id = str(picker.currentData())
+        recipe = connect_recipe(client_id, mcp_url, token)
         steps_label.setText("\n".join(f"{number}. {step}" for number, step in enumerate(recipe["steps"], start=1)))
         snippet_title.setText(str(recipe["snippetLabel"]))
         snippet_box.setPlainText(str(recipe["snippet"]))
+        mcpb_row_widget.setVisible(client_id == CLIENT_CLAUDE_DESKTOP)
 
     picker.currentIndexChanged.connect(render)
     render()
     return widget
+
+
+def _make_mcpb_section(parent: Any, logger=None) -> Any:
+    from aqt.qt import (
+        QDrag,
+        QFileDialog,
+        QHBoxLayout,
+        QLabel,
+        QMimeData,
+        QPushButton,
+        Qt,
+        QUrl,
+        QWidget,
+    )
+
+    section = QWidget(parent)
+    row = QHBoxLayout(section)
+    row.setContentsMargins(0, 4, 0, 0)
+    row.setSpacing(8)
+
+    chip = QLabel("⬇  Deckhand.mcpb — drag me into Claude Desktop")
+    chip.setStyleSheet(
+        "border: 2px dashed #8a8a8a; border-radius: 8px; padding: 10px 14px; "
+        "font-weight: 600; background: #f5f5f5;"
+    )
+    chip.setCursor(Qt.CursorShape.OpenHandCursor)
+
+    def start_drag(event: Any) -> None:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        try:
+            path = mcpb.build_bundle()
+        except Exception as exc:  # noqa: BLE001 - surface build problems inline
+            chip.setText(f"Could not build extension: {exc}")
+            return
+        drag = QDrag(chip)
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(str(path))])
+        drag.setMimeData(mime)
+        if logger:
+            logger("management.mcpb_drag_started", path=str(path))
+        drag.exec(Qt.DropAction.CopyAction)
+
+    chip.mousePressEvent = start_drag
+    row.addWidget(chip, 1)
+
+    save_button = QPushButton("Save extension...")
+
+    def save_bundle() -> None:
+        suggested = str(Path.home() / "Downloads" / mcpb.BUNDLE_FILENAME)
+        chosen, _selected_filter = QFileDialog.getSaveFileName(
+            section, "Save Deckhand extension", suggested, "MCP Bundle (*.mcpb)"
+        )
+        if not chosen:
+            return
+        path = mcpb.build_bundle(Path(chosen))
+        if logger:
+            logger("management.mcpb_saved", path=str(path))
+
+    save_button.clicked.connect(lambda _checked=False: save_bundle())
+    row.addWidget(save_button)
+    return section
 
 
 def _build_status_tab(parent: Any, anki_tools: list[str], logger=None) -> Any:
@@ -801,15 +869,16 @@ def connect_recipe(client_id: str, mcp_url: str, token: str | None = None) -> di
     label = next((client["label"] for client in CONNECT_CLIENTS if client["id"] == client_id), "Other MCP client")
     if client_id == CLIENT_CLAUDE_DESKTOP:
         steps = [
-            "Open your desktop client's connector settings.",
-            'Click "Add custom connector".',
-            'Name it "Deckhand" and paste the URL below into the URL field.',
-            'Click "Add". Deckhand tools appear in the chat tools menu.',
+            "Drag the Deckhand extension chip below into the Claude Desktop window "
+            '(or click "Save extension..." and double-click the saved file).',
+            'Click "Install" in Claude\'s dialog. The endpoint is already filled in.',
+            "Alternatively: open your desktop client's connector settings, "
+            'click "Add custom connector", and paste the URL below.',
         ]
         if token:
             steps.append(
-                "This desktop connector cannot send Deckhand's access token. "
-                'Turn off "Require access token" on the Server tab to use it.'
+                "The extension carries your access token automatically; the custom-connector "
+                "route cannot send it, so prefer the extension while the token is enabled."
             )
         return {"client": client_id, "label": label, "steps": steps, "snippet": mcp_url, "snippetLabel": "Server URL"}
     if client_id == CLIENT_CLAUDE_CODE:

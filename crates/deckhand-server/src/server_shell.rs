@@ -26,7 +26,6 @@ const COMPANION_TOKEN_ENV: &str = "DECKHAND_COMPANION_TOKEN";
 const MCP_REQUIRE_TOKEN_ENV: &str = "DECKHAND_MCP_REQUIRE_TOKEN";
 const MCP_TOOL_TIMEOUT_ENV: &str = "DECKHAND_MCP_TOOL_TIMEOUT_SECONDS";
 const STATE_ROOT_ENV: &str = "DECKHAND_ANKI_EXTENSION_STATE_ROOT";
-const LEGACY_DEV_STATE_ROOT: &str = "/Users/thoffman/github.com/bentoware/deckhand-state";
 const DEFAULT_MCP_TOOL_TIMEOUT_SECONDS: u64 = 120;
 
 #[derive(Debug, Clone, Serialize)]
@@ -285,10 +284,6 @@ fn tool_visibility_path() -> PathBuf {
 fn state_root() -> PathBuf {
     if let Ok(configured) = env::var(STATE_ROOT_ENV) {
         return PathBuf::from(configured);
-    }
-    let legacy = PathBuf::from(LEGACY_DEV_STATE_ROOT);
-    if legacy.is_dir() {
-        return legacy;
     }
     default_state_root(env::var("HOME").ok().as_deref(), std::env::consts::OS)
 }
@@ -1181,7 +1176,10 @@ mod tests {
 
         std::env::remove_var("XDG_DATA_HOME");
         let linux = default_state_root(Some("/home/example"), "linux");
-        assert_eq!(linux, PathBuf::from("/home/example/.local/share/deckhand/state"));
+        assert_eq!(
+            linux,
+            PathBuf::from("/home/example/.local/share/deckhand/state")
+        );
     }
 
     #[test]

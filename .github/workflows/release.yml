@@ -86,7 +86,7 @@ jobs:
       - name: Read add-on version
         id: version
         run: |
-          VERSION=$(python -c "from pathlib import Path; import re; print(re.search(r'\"([^\"]+)\"', Path('addon/deckhand/deckhand/version.py').read_text()).group(1))")
+          VERSION=$(python -c "from pathlib import Path; import re; print(re.search(r'^ADDON_VERSION = \"([^\"]+)\"', Path('addon/deckhand/deckhand/version.py').read_text(), re.M).group(1))")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Verify tag matches version.py
         if: startsWith(github.ref, 'refs/tags/')
@@ -107,10 +107,13 @@ jobs:
             --companion-binary macos-x86_64=bins/macos-x86_64/deckhand-server \
             --companion-binary linux-x86_64=bins/linux-x86_64/deckhand-server \
             --companion-binary windows-x86_64=bins/windows-x86_64/deckhand-server.exe
+          python scripts/build.py package-mcpb --output dist/Deckhand.mcpb
       - uses: actions/upload-artifact@v4
         with:
           name: deckhand-ankiaddon
-          path: dist/deckhand.ankiaddon
+          path: |
+            dist/deckhand.ankiaddon
+            dist/Deckhand.mcpb
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -118,9 +121,9 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           if gh release view "v$VERSION" >/dev/null 2>&1; then
-            gh release upload "v$VERSION" dist/deckhand.ankiaddon --clobber
+            gh release upload "v$VERSION" dist/deckhand.ankiaddon dist/Deckhand.mcpb --clobber
           else
-            gh release create "v$VERSION" dist/deckhand.ankiaddon \
+            gh release create "v$VERSION" dist/deckhand.ankiaddon dist/Deckhand.mcpb \
               --title "Deckhand $VERSION" \
               --notes-file "releases/Release-$VERSION.md"
           fi

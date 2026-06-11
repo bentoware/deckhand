@@ -1,8 +1,8 @@
 """Discover bundled Deckhand skills and install them for agent clients.
 
-Packaged builds carry skills at ``<addon>/skills/<name>/SKILL.md``. Dev
-checkouts fall back to the repository ``skills/`` directory and the sibling
-``deckhand-skills`` repository so the management UI works without packaging.
+Both packaged builds and dev syncs carry skills at
+``<addon>/skills/<name>/SKILL.md``; ``DECKHAND_BUNDLED_SKILLS_DIRS``
+overrides discovery for tests and unusual setups.
 """
 
 from __future__ import annotations
@@ -14,8 +14,6 @@ import shutil
 import time
 from pathlib import Path
 from typing import Any
-
-from .state_paths import PROJECT_ROOT
 
 SKILL_FILENAME = "SKILL.md"
 MANIFEST_FILENAME = ".deckhand-skill.json"
@@ -32,11 +30,7 @@ def bundled_skill_roots() -> list[Path]:
     if configured:
         return [Path(part).expanduser() for part in configured.split(":") if part]
     package_root = Path(__file__).resolve().parents[1]
-    candidates = [
-        package_root / "skills",
-        PROJECT_ROOT / "skills",
-        PROJECT_ROOT.parent / "deckhand-skills" / "skills",
-    ]
+    candidates = [package_root / "skills"]
     return [root for root in candidates if root.is_dir()]
 
 

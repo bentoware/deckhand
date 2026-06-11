@@ -237,6 +237,14 @@ def package_addon(
     print(f"wrote {output}")
 
 
+def package_mcpb(output: Path) -> Path:
+    """Build the Claude Desktop .mcpb bundle with generic defaults."""
+    sys.path.insert(0, str(ADDON))
+    from deckhand import mcpb as mcpb_module
+
+    return mcpb_module.build_bundle(output, endpoint="http://127.0.0.1:28765/mcp", token="")
+
+
 def clean() -> None:
     shutil.rmtree(DIST, ignore_errors=True)
     clean_python_caches()
@@ -283,6 +291,8 @@ def main(argv: list[str] | None = None) -> int:
         metavar="PLATFORM=PATH",
         help="Bundle an already-built companion binary at bin/<platform>/deckhand-server. Repeat for multi-platform packages.",
     )
+    mcpb_parser = subparsers.add_parser("package-mcpb", help="Create the Claude Desktop .mcpb bundle.")
+    mcpb_parser.add_argument("--output", type=Path, default=DIST / "Deckhand.mcpb", help="Output .mcpb path.")
     subparsers.add_parser("clean", help="Remove build-runner dist artifacts.")
     clean_room_parser = subparsers.add_parser(
         "clean-room",
@@ -335,6 +345,9 @@ def main(argv: list[str] | None = None) -> int:
             skip_build=args.skip_build,
             companion_binaries=dict(args.companion_binary) if args.companion_binary else None,
         )
+    elif args.command == "package-mcpb":
+        path = package_mcpb(args.output)
+        print(f"wrote {path}")
     elif args.command == "clean":
         clean()
     elif args.command == "clean-room":

@@ -18,7 +18,7 @@ DEFAULT_ANKI_APP = "/Applications/Anki.app"
 SERVER_BINARY = "deckhand-server.exe" if platform.system().lower() == "windows" else "deckhand-server"
 IGNORED_DIRS = {"__pycache__", ".mypy_cache", ".pytest_cache"}
 IGNORED_SUFFIXES = {".pyc", ".pyo"}
-PRESERVED_TOP_LEVEL_DIRS = {"bin"}
+PRESERVED_TOP_LEVEL_DIRS = {"bin", "skills"}
 
 
 def is_ignored(path: Path) -> bool:
@@ -70,6 +70,24 @@ def sync_addon(source: Path, target: Path) -> dict[str, object]:
             target_path.rmdir()
 
     return {"copied": copied, "removed": removed, "pythonChanged": any(path.endswith(".py") for path in copied + removed)}
+
+
+def sync_skills(target: Path) -> dict[str, str]:
+    """Mirror the bundled skills into the synced add-on, like packaging does."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import build
+
+    sources = build.bundled_skill_sources()
+    skills_target = target / "skills"
+    if skills_target.exists():
+        shutil.rmtree(skills_target)
+    for name, source in sorted(sources.items()):
+        shutil.copytree(
+            source,
+            skills_target / name,
+            ignore=shutil.ignore_patterns(*IGNORED_DIRS, "*.pyc", "*.pyo"),
+        )
+    return {name: str(source) for name, source in sources.items()}
 
 
 def generate_mcp_catalog(root: Path = ROOT) -> None:
@@ -182,6 +200,8 @@ def main() -> int:
     if not args.skip_mcp_catalog:
         generate_mcp_catalog()
     result = sync_addon(source, target)
+    skills = sync_skills(target)
+    print(f"  skills bundled: {len(skills)}")
     companion = install_companion_binary(args.companion_binary, target) if args.companion_binary else None
     print_summary(result, target, companion)
     if args.restart_anki:

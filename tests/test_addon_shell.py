@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+import zipfile
 from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
@@ -147,6 +148,9 @@ class AddonShellTests(unittest.TestCase):
         source = (ADDON / "deckhand" / "addon.py").read_text(encoding="utf-8")
 
         self.assertIn('QMenu("Deckhand", mw)', source)
+        self.assertIn('QAction("Onboarding", mw)', source)
+        self.assertIn("onboarding_action.triggered.connect(show_onboarding)", source)
+        self.assertIn("welcome.show_onboarding(mw, open_setup=show_management, logger=_log)", source)
         self.assertIn('QAction("Management", mw)', source)
         self.assertIn('QAction("Developer Panel", mw)', source)
         self.assertIn("developer_panel_action.triggered.connect(show_developer_panel)", source)
@@ -620,11 +624,53 @@ class AddonShellTests(unittest.TestCase):
         self.assertEqual(other["snippet"], url)
         self.assertTrue(any("Streamable HTTP" in step for step in other["steps"]))
 
-    def test_claude_desktop_recipe_warns_when_token_required(self):
+    def test_claude_desktop_recipe_leads_with_mcpb_extension(self):
         recipe = management.connect_recipe(management.CLIENT_CLAUDE_DESKTOP, "http://127.0.0.1:28765/mcp", "tok123")
 
-        self.assertTrue(any("Require access token" in step for step in recipe["steps"]))
+        self.assertIn("extension chip", recipe["steps"][0])
+        self.assertTrue(any("custom connector" in step for step in recipe["steps"]))
+        self.assertTrue(any("access token automatically" in step for step in recipe["steps"]))
         self.assertNotIn("tok123", recipe["snippet"])
+
+    def test_mcpb_bundle_contains_manifest_and_proxy(self):
+        from deckhand import mcpb as mcpb_module
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXTENSION_STATE_ROOT": temp_dir}):
+                bundle = mcpb_module.build_bundle(Path(temp_dir) / "Deckhand.mcpb")
+                with zipfile.ZipFile(bundle) as archive:
+                    names = set(archive.namelist())
+                    manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+                    proxy = archive.read("proxy.js").decode("utf-8")
+
+        self.assertEqual(names, {"manifest.json", "proxy.js"})
+        self.assertEqual(manifest["manifest_version"], "0.3")
+        self.assertEqual(manifest["version"], ADDON_VERSION)
+        self.assertEqual(manifest["server"]["type"], "node")
+        self.assertIn("${__dirname}/proxy.js", manifest["server"]["mcp_config"]["args"])
+        self.assertIn("/mcp", manifest["user_config"]["endpoint"]["default"])
+        self.assertTrue(manifest["user_config"]["token"]["sensitive"])
+        self.assertIn("DECKHAND_MCP_URL", proxy)
+        self.assertIn("mcp-session-id", proxy)
+
+    def test_mcpb_manifest_bakes_token_only_when_required(self):
+        from deckhand import mcpb as mcpb_module
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXTENSION_STATE_ROOT": temp_dir}):
+                self.assertEqual(mcpb_module.manifest()["user_config"]["token"]["default"], "")
+                settings.set_require_mcp_token(True)
+                baked = mcpb_module.manifest()["user_config"]["token"]["default"]
+                self.assertEqual(baked, settings.persistent_token())
+
+    def test_connect_tab_offers_mcpb_drag_and_save(self):
+        source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
+
+        self.assertIn("def _make_mcpb_section", source)
+        self.assertIn("drag me into Claude Desktop", source)
+        self.assertIn("mime.setUrls([QUrl.fromLocalFile(str(path))])", source)
+        self.assertIn('QPushButton("Save extension...")', source)
+        self.assertIn("mcpb_row_widget.setVisible(client_id == CLIENT_CLAUDE_DESKTOP)", source)
 
     def test_connection_checks_map_failures_to_next_actions(self):
         original_health_status = management.companion.health_status
@@ -823,14 +869,21 @@ class AddonShellTests(unittest.TestCase):
             linux = state_paths.default_state_root(home=home, system="Linux")
         self.assertEqual(linux, home / ".local" / "share" / "deckhand" / "state")
 
-    def test_state_root_never_defaults_to_dev_checkout_on_user_machines(self):
+    def test_state_root_has_no_dev_machine_fallback(self):
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("DECKHAND_ANKI_EXTENSION_STATE_ROOT", None)
-            with mock.patch.object(state_paths, "LEGACY_DEV_STATE_ROOT", Path("/nonexistent/deckhand-state")):
-                root = state_paths.state_root()
+            root = state_paths.state_root()
 
         self.assertEqual(root, state_paths.default_state_root())
-        self.assertNotIn("github.com", str(root))
+        source = (ADDON / "deckhand" / "state_paths.py").read_text(encoding="utf-8")
+        self.assertNotIn("thoffman", source)
+        rust_source = (ROOT / "crates" / "deckhand-server" / "src" / "server_shell.rs").read_text(encoding="utf-8")
+        self.assertNotIn("thoffman", rust_source)
+
+    def test_companion_pins_state_root_for_server(self):
+        source = (ADDON / "deckhand" / "companion.py").read_text(encoding="utf-8")
+
+        self.assertIn('"DECKHAND_ANKI_EXTENSION_STATE_ROOT": str(work_root())', source)
 
     def test_ankiweb_installs_skip_github_update_checks(self):
         self.assertTrue(updates.is_ankiweb_install(Path("/addons21/1234567890")))

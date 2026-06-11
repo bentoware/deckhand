@@ -13,6 +13,7 @@ from urllib.error import URLError
 from urllib.request import urlopen
 
 from . import settings
+from .state_paths import work_root
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -157,6 +158,8 @@ def start_companion(binary: Path, logger=None) -> subprocess.Popen:
         "DECKHAND_COMPANION_TOKEN": token,
         "DECKHAND_ANKI_BRIDGE_TOKEN": os.environ.get("DECKHAND_ANKI_BRIDGE_TOKEN", token),
         "DECKHAND_MCP_REQUIRE_TOKEN": "1" if settings.require_mcp_token() else "0",
+        # Keep the Rust server's state root identical to the add-on's.
+        "DECKHAND_ANKI_EXTENSION_STATE_ROOT": str(work_root()),
     }
     _process = subprocess.Popen(  # noqa: S603 - launches bundled local companion
         command,

@@ -47,6 +47,12 @@ def maybe_show_welcome(mw: Any, open_setup: Callable[[], None] | None = None, lo
     return True
 
 
+def show_onboarding(mw: Any, open_setup: Callable[[], None] | None = None, logger=None) -> None:
+    """Show the onboarding dialog on demand (Deckhand menu), regardless of first-run state."""
+    settings.set_welcome_shown(True)
+    _show_welcome_dialog(mw, open_setup, logger=logger)
+
+
 def _show_welcome_dialog(mw: Any, open_setup: Callable[[], None] | None, logger=None) -> None:
     try:
         from aqt.qt import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
