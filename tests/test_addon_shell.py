@@ -14,6 +14,7 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 ADDON = ROOT / "addon" / "deckhand"
 sys.path.insert(0, str(ADDON))
+TEST_TMP = Path(tempfile.gettempdir()) / "deckhand-anki-tests"
 
 from deckhand.bridge import BridgeStatus
 from deckhand.capabilities import anki_bridge_capability_payload, capability_payload
@@ -1953,7 +1954,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertTrue(stats["countsUnavailable"])
 
     def test_media_tools_sanitize_record_attach_and_get(self):
-        source = Path("/private/tmp/deckhand-anki-tests/media/unsafe sample!.txt")
+        source = TEST_TMP / "media" / "unsafe sample!.txt"
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text("media smoke", encoding="utf-8")
         mw = FakeMw()
@@ -1988,7 +1989,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertFalse(mw.col.notes[1001].flushed)
 
     def test_media_field_mutations_prefer_collection_update_note(self):
-        source = Path("/private/tmp/deckhand-anki-tests/media/update path.txt")
+        source = TEST_TMP / "media" / "update path.txt"
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text("media smoke", encoding="utf-8")
         mw = FakeMw()
@@ -2011,7 +2012,7 @@ class AddonShellTests(unittest.TestCase):
 
     def test_import_export_backup_tools_with_fakes(self):
         mw = FakeMw()
-        artifact_dir = Path("/private/tmp/deckhand-anki-tests/import-export")
+        artifact_dir = TEST_TMP / "import-export"
         artifact_dir.mkdir(parents=True, exist_ok=True)
         exported = import_export_tools.export_notes(
             mw,
@@ -2134,7 +2135,7 @@ class FakeCollection:
         self.media = FakeMedia()
         self._backend = FakeBackend()
         self.updated_note_ids = []
-        self.path = str(Path("/private/tmp/deckhand-anki-tests/fake-collection.anki2"))
+        self.path = str(TEST_TMP / "fake-collection.anki2")
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         Path(self.path).write_text("fake collection", encoding="utf-8")
 
@@ -2229,7 +2230,7 @@ class FakeMw:
 
 class FakeMedia:
     def __init__(self) -> None:
-        self.root = Path("/private/tmp/deckhand-anki-tests/fake-media")
+        self.root = TEST_TMP / "fake-media"
         self.root.mkdir(parents=True, exist_ok=True)
 
     def add_file(self, path):
