@@ -236,7 +236,8 @@ class AddonShellTests(unittest.TestCase):
         original = os.environ.get("DECKHAND_ANKI_EXECUTABLE")
         os.environ["DECKHAND_ANKI_EXECUTABLE"] = "/Applications/Anki.app/Contents/MacOS/launcher"
         try:
-            command = management.restart_command(9333)
+            with mock.patch.object(management.platform, "system", lambda: "Darwin"):
+                command = management.restart_command(9333)
         finally:
             if original is None:
                 os.environ.pop("DECKHAND_ANKI_EXECUTABLE", None)
