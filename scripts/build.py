@@ -59,10 +59,19 @@ def python() -> str:
 
 def generate() -> None:
     run([python(), "scripts/generate_mcp_catalog.py"])
+    sync_plugin_skills()
+
+
+def sync_plugin_skills() -> None:
+    run([python(), "scripts/sync_plugin_skills.py"])
 
 
 def check_catalog() -> None:
     run([python(), "scripts/generate_mcp_catalog.py", "--check"])
+
+
+def check_plugin_skills() -> None:
+    run([python(), "scripts/sync_plugin_skills.py", "--check"])
 
 
 def check_tool_surface() -> None:
@@ -269,6 +278,8 @@ def main(argv: list[str] | None = None) -> int:
 
     subparsers.add_parser("generate", help="Regenerate generated MCP/Rust artifacts.")
     subparsers.add_parser("check-catalog", help="Verify generated MCP inventory is current.")
+    subparsers.add_parser("sync-plugin-skills", help="Mirror skills/ into the Claude Code plugin copy.")
+    subparsers.add_parser("check-plugin-skills", help="Verify the plugin skill copy matches skills/.")
     subparsers.add_parser("test-python", help="Run Python unit tests.")
     subparsers.add_parser("test-rust", help="Run Rust unit tests.")
     subparsers.add_parser("test", help="Run catalog freshness, Python, and Rust tests.")
@@ -318,6 +329,10 @@ def main(argv: list[str] | None = None) -> int:
         generate()
     elif args.command == "check-catalog":
         check_catalog()
+    elif args.command == "sync-plugin-skills":
+        sync_plugin_skills()
+    elif args.command == "check-plugin-skills":
+        check_plugin_skills()
     elif args.command == "test-python":
         test_python()
     elif args.command == "test-rust":
@@ -325,6 +340,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command in {"test", "check"}:
         clean_python_caches()
         check_catalog()
+        check_plugin_skills()
         check_tool_surface()
         test_python()
         test_rust()

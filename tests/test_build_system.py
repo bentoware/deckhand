@@ -40,6 +40,7 @@ class BuildSystemTests(unittest.TestCase):
             calls,
             [
                 [build.sys.executable, "scripts/generate_mcp_catalog.py"],
+                [build.sys.executable, "scripts/sync_plugin_skills.py"],
                 ["cargo", "build", "-p", "deckhand-server"],
             ],
         )
@@ -58,6 +59,7 @@ class BuildSystemTests(unittest.TestCase):
             calls,
             [
                 [build.sys.executable, "scripts/generate_mcp_catalog.py", "--check"],
+                [build.sys.executable, "scripts/sync_plugin_skills.py", "--check"],
                 [build.sys.executable, "scripts/check_tool_surface.py"],
                 [build.sys.executable, "-m", "unittest", "discover", "-s", "tests"],
                 ["cargo", "test", "-p", "deckhand-server", "--", "--test-threads=1"],
@@ -78,6 +80,7 @@ class BuildSystemTests(unittest.TestCase):
             calls,
             [
                 [build.sys.executable, "scripts/generate_mcp_catalog.py"],
+                [build.sys.executable, "scripts/sync_plugin_skills.py"],
                 ["cargo", "build", "-p", "deckhand-server"],
                 [
                     build.sys.executable,
@@ -209,7 +212,13 @@ class BuildSystemTests(unittest.TestCase):
                 build.subprocess.run = original_run
                 build.built_server_path = original_built_server_path
 
-            self.assertEqual(calls, [[build.sys.executable, "scripts/generate_mcp_catalog.py"]])
+            self.assertEqual(
+                calls,
+                [
+                    [build.sys.executable, "scripts/generate_mcp_catalog.py"],
+                    [build.sys.executable, "scripts/sync_plugin_skills.py"],
+                ],
+            )
             with zipfile.ZipFile(output) as archive:
                 names = set(archive.namelist())
 
@@ -351,9 +360,10 @@ class BuildSystemTests(unittest.TestCase):
                 build.built_server_path = original_built_server_path
 
         self.assertEqual(
-            calls[:2],
+            calls[:3],
             [
                 [build.sys.executable, "scripts/generate_mcp_catalog.py"],
+                [build.sys.executable, "scripts/sync_plugin_skills.py"],
                 ["cargo", "build", "-p", "deckhand-server", "--release"],
             ],
         )
@@ -385,7 +395,13 @@ class BuildSystemTests(unittest.TestCase):
             finally:
                 build.subprocess.run = original_run
 
-            self.assertEqual(calls, [[build.sys.executable, "scripts/generate_mcp_catalog.py"]])
+            self.assertEqual(
+                calls,
+                [
+                    [build.sys.executable, "scripts/generate_mcp_catalog.py"],
+                    [build.sys.executable, "scripts/sync_plugin_skills.py"],
+                ],
+            )
             with zipfile.ZipFile(output) as archive:
                 names = set(archive.namelist())
 
@@ -427,7 +443,13 @@ class BuildSystemTests(unittest.TestCase):
             finally:
                 build.subprocess.run = original_run
 
-            self.assertEqual(calls, [[build.sys.executable, "scripts/generate_mcp_catalog.py"]])
+            self.assertEqual(
+                calls,
+                [
+                    [build.sys.executable, "scripts/generate_mcp_catalog.py"],
+                    [build.sys.executable, "scripts/sync_plugin_skills.py"],
+                ],
+            )
             with zipfile.ZipFile(output) as archive:
                 names = set(archive.namelist())
 
