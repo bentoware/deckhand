@@ -1,0 +1,15 @@
+{
+  "name": "bentoware",
+  "description": "Bentoware plugins: Deckhand connects your AI assistant to your live Anki collection.",
+  "owner": {
+    "name": "Bentoware",
+    "url": "https://github.com/bentoware"
+  },
+  "plugins": [
+    {
+      "name": "deckhand",
+      "source": "./",
+      "description": "Your AI study partner inside Anki — live deck context, cited card creation, and weak-card rescue over a local MCP connection, with bundled study skills."
+    }
+  ]
+}

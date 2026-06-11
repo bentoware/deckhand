@@ -10,9 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from . import companion
-from . import mcpb
+from . import connect_hosts
 from . import settings
 from . import skills
+from . import ui
 from . import updates
 from .bridge import bridge_status
 from .command_catalog import CommandCatalogEntry, command_catalog
@@ -30,16 +31,13 @@ BANNER_BODY = (
 BANNER_PRIMARY_ACTION = "Restart Anki for Deckhand"
 BANNER_DISMISS_ACTION = "Not now"
 
-CLIENT_CLAUDE_DESKTOP = "claude_desktop"
-CLIENT_CLAUDE_CODE = "claude_code"
-CLIENT_CODEX = "codex"
-CLIENT_OTHER = "other"
-CONNECT_CLIENTS = [
-    {"id": CLIENT_CLAUDE_DESKTOP, "label": "Claude Desktop"},
-    {"id": CLIENT_CLAUDE_CODE, "label": "Claude Code (terminal)"},
-    {"id": CLIENT_CODEX, "label": "Codex CLI"},
-    {"id": CLIENT_OTHER, "label": "Other MCP client"},
-]
+CLIENT_CLAUDE_DESKTOP = connect_hosts.CLIENT_CLAUDE_DESKTOP
+CLIENT_CLAUDE_CODE = connect_hosts.CLIENT_CLAUDE_CODE
+CLIENT_CODEX = connect_hosts.CLIENT_CODEX_CLI
+CLIENT_CODEX_CLI = connect_hosts.CLIENT_CODEX_CLI
+CLIENT_CODEX_DESKTOP = connect_hosts.CLIENT_CODEX_DESKTOP
+CLIENT_OTHER = connect_hosts.CLIENT_OTHER
+CONNECT_CLIENTS = connect_hosts.connect_hosts()
 
 _banner_dismissed = False
 _banner_dock = None
@@ -190,7 +188,7 @@ def dismiss_cdp_banner(dock: Any | None = None, logger=None) -> None:
         logger("management.cdp_banner_dismissed")
 
 
-def show_management_dialog(mw: Any, anki_tools: list[str], logger=None) -> None:
+def show_management_dialog(mw: Any, anki_tools: list[str], logger=None, initial_client: str | None = None) -> None:
     global _management_dialog
     if _management_dialog is not None:
         try:
@@ -201,7 +199,7 @@ def show_management_dialog(mw: Any, anki_tools: list[str], logger=None) -> None:
         except Exception:
             _management_dialog = None
     try:
-        dialog = _build_management_dialog(mw, anki_tools, logger=logger)
+        dialog = _build_management_dialog(mw, anki_tools, logger=logger, initial_client=initial_client)
     except Exception as exc:  # noqa: BLE001 - surface Qt failures in a plain dialog
         if logger:
             logger("management.dialog_unavailable", error=str(exc))
@@ -218,7 +216,7 @@ def _clear_management_dialog() -> None:
     _management_dialog = None
 
 
-def _build_management_dialog(mw: Any, anki_tools: list[str], logger=None) -> Any:
+def _build_management_dialog(mw: Any, anki_tools: list[str], logger=None, initial_client: str | None = None) -> Any:
     from aqt.qt import (
         QDialog,
         QDialogButtonBox,
@@ -254,7 +252,7 @@ def _build_management_dialog(mw: Any, anki_tools: list[str], logger=None) -> Any
     layout.addLayout(status_row)
 
     tabs = QTabWidget(dialog)
-    tabs.addTab(_build_connect_tab(tabs, logger=logger), "Connect")
+    tabs.addTab(_build_connect_tab(tabs, logger=logger, initial_client=initial_client), "Connect")
     tabs.addTab(_build_status_tab(tabs, anki_tools, logger=logger), "Status")
     tabs.addTab(_build_server_tab(tabs, logger=logger), "Server")
     tabs.addTab(_build_skills_tab(tabs, logger=logger), "Skills")
@@ -274,25 +272,37 @@ def _build_management_dialog(mw: Any, anki_tools: list[str], logger=None) -> Any
     return dialog
 
 
-def _build_connect_tab(parent: Any, logger=None) -> Any:
+def _build_connect_tab(parent: Any, logger=None, initial_client: str | None = None) -> Any:
     from aqt.qt import (
-        QComboBox,
+        QFrame,
         QGuiApplication,
         QHBoxLayout,
         QLabel,
         QLineEdit,
-        QPlainTextEdit,
         QPushButton,
+        QScrollArea,
         QVBoxLayout,
         QWidget,
     )
 
     widget = QWidget(parent)
     layout = QVBoxLayout(widget)
-    layout.setSpacing(10)
+    layout.setSpacing(12)
 
     mcp_url = str(companion_status()["mcpUrl"])
     token = settings.persistent_token() if settings.require_mcp_token() else None
+    selected_client = {"id": connect_hosts.normalize_client_id(initial_client)}
+
+    ready_card = _section_frame()
+    ready_layout = QVBoxLayout(ready_card)
+    ready_layout.setContentsMargins(14, 12, 14, 12)
+    ready_layout.setSpacing(8)
+    ready_header = QHBoxLayout()
+    ready_header.addWidget(_status_pill("Ready", "ok"))
+    ready_text = QLabel("Deckhand is running locally. Choose where you want Anki tools to appear, then follow the steps below.")
+    ready_text.setWordWrap(True)
+    ready_header.addWidget(ready_text, 1)
+    ready_layout.addLayout(ready_header)
 
     url_row = QHBoxLayout()
     url_row.setSpacing(8)
@@ -311,120 +321,36 @@ def _build_connect_tab(parent: Any, logger=None) -> Any:
 
     copy_url_button.clicked.connect(lambda _checked=False: copy_mcp_url())
     url_row.addWidget(copy_url_button)
-    layout.addLayout(url_row)
+    ready_layout.addLayout(url_row)
+    layout.addWidget(ready_card)
 
-    picker_row = QHBoxLayout()
-    picker_row.setSpacing(8)
-    picker_row.addWidget(QLabel("Set up"))
-    picker = QComboBox()
-    for client in CONNECT_CLIENTS:
-        picker.addItem(client["label"], client["id"])
-    picker_row.addWidget(picker, 1)
-    layout.addLayout(picker_row)
+    layout.addWidget(_section_title("Pick your MCP host"))
 
-    steps_label = QLabel("")
-    steps_label.setWordWrap(True)
-    layout.addWidget(steps_label)
+    recipe_view = ui.build_recipe_view(widget, logger=logger, log_prefix="management")
 
-    snippet_title = _section_title("")
-    layout.addWidget(snippet_title)
-    snippet_box = QPlainTextEdit()
-    snippet_box.setReadOnly(True)
-    snippet_box.setMaximumHeight(110)
-    layout.addWidget(snippet_box)
+    def render(client_id: str | None = None) -> None:
+        if client_id is not None:
+            selected_client["id"] = connect_hosts.normalize_client_id(client_id)
+        recipe_view["render"](connect_hosts.connect_recipe(selected_client["id"], mcp_url, token))
+        pillbar["set_selected"](selected_client["id"])
 
-    copy_snippet_button = QPushButton("Copy")
-
-    def copy_snippet() -> None:
-        clipboard = QGuiApplication.clipboard()
-        if clipboard is not None:
-            clipboard.setText(snippet_box.toPlainText())
+    def choose_host(client_id: str) -> None:
+        render(client_id)
         if logger:
-            logger("management.connect_snippet_copied", client=str(picker.currentData()))
+            logger("management.connect_host_selected", client=selected_client["id"])
 
-    copy_snippet_button.clicked.connect(lambda _checked=False: copy_snippet())
-    snippet_row = QHBoxLayout()
-    snippet_row.addStretch(1)
-    snippet_row.addWidget(copy_snippet_button)
-    layout.addLayout(snippet_row)
+    pillbar = ui.build_host_pillbar(widget, choose_host)
+    layout.addWidget(pillbar["widget"])
 
-    mcpb_row_widget = _make_mcpb_section(widget, logger=logger)
-    layout.addWidget(mcpb_row_widget)
-    layout.addStretch(1)
+    scroll = QScrollArea(widget)
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.Shape.NoFrame)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    scroll.setWidget(recipe_view["widget"])
+    layout.addWidget(scroll, 1)
 
-    def render(_index: int = 0) -> None:
-        client_id = str(picker.currentData())
-        recipe = connect_recipe(client_id, mcp_url, token)
-        steps_label.setText("\n".join(f"{number}. {step}" for number, step in enumerate(recipe["steps"], start=1)))
-        snippet_title.setText(str(recipe["snippetLabel"]))
-        snippet_box.setPlainText(str(recipe["snippet"]))
-        mcpb_row_widget.setVisible(client_id == CLIENT_CLAUDE_DESKTOP)
-
-    picker.currentIndexChanged.connect(render)
-    render()
+    render(selected_client["id"])
     return widget
-
-
-def _make_mcpb_section(parent: Any, logger=None) -> Any:
-    from aqt.qt import (
-        QDrag,
-        QFileDialog,
-        QHBoxLayout,
-        QLabel,
-        QMimeData,
-        QPushButton,
-        Qt,
-        QUrl,
-        QWidget,
-    )
-
-    section = QWidget(parent)
-    row = QHBoxLayout(section)
-    row.setContentsMargins(0, 4, 0, 0)
-    row.setSpacing(8)
-
-    chip = QLabel("⬇  Deckhand.mcpb — drag me into Claude Desktop")
-    chip.setStyleSheet(
-        "border: 2px dashed #8a8a8a; border-radius: 8px; padding: 10px 14px; "
-        "font-weight: 600; background: #f5f5f5;"
-    )
-    chip.setCursor(Qt.CursorShape.OpenHandCursor)
-
-    def start_drag(event: Any) -> None:
-        if event.button() != Qt.MouseButton.LeftButton:
-            return
-        try:
-            path = mcpb.build_bundle()
-        except Exception as exc:  # noqa: BLE001 - surface build problems inline
-            chip.setText(f"Could not build extension: {exc}")
-            return
-        drag = QDrag(chip)
-        mime = QMimeData()
-        mime.setUrls([QUrl.fromLocalFile(str(path))])
-        drag.setMimeData(mime)
-        if logger:
-            logger("management.mcpb_drag_started", path=str(path))
-        drag.exec(Qt.DropAction.CopyAction)
-
-    chip.mousePressEvent = start_drag
-    row.addWidget(chip, 1)
-
-    save_button = QPushButton("Save extension...")
-
-    def save_bundle() -> None:
-        suggested = str(Path.home() / "Downloads" / mcpb.BUNDLE_FILENAME)
-        chosen, _selected_filter = QFileDialog.getSaveFileName(
-            section, "Save Deckhand extension", suggested, "MCP Bundle (*.mcpb)"
-        )
-        if not chosen:
-            return
-        path = mcpb.build_bundle(Path(chosen))
-        if logger:
-            logger("management.mcpb_saved", path=str(path))
-
-    save_button.clicked.connect(lambda _checked=False: save_bundle())
-    row.addWidget(save_button)
-    return section
 
 
 def _build_status_tab(parent: Any, anki_tools: list[str], logger=None) -> Any:
@@ -866,50 +792,8 @@ def format_diagnostics() -> str:
 
 
 def connect_recipe(client_id: str, mcp_url: str, token: str | None = None) -> dict[str, Any]:
-    label = next((client["label"] for client in CONNECT_CLIENTS if client["id"] == client_id), "Other MCP client")
-    if client_id == CLIENT_CLAUDE_DESKTOP:
-        steps = [
-            "Drag the Deckhand extension chip below into the Claude Desktop window "
-            '(or click "Save extension..." and double-click the saved file).',
-            'Click "Install" in Claude\'s dialog. The endpoint is already filled in.',
-            "Alternatively: in Claude Desktop open Settings, then Connectors, "
-            'click "Add custom connector", and paste the URL below.',
-        ]
-        if token:
-            steps.append(
-                "The extension carries your access token automatically; the custom-connector "
-                "route cannot send it, so prefer the extension while the token is enabled."
-            )
-        return {"client": client_id, "label": label, "steps": steps, "snippet": mcp_url, "snippetLabel": "Server URL"}
-    if client_id == CLIENT_CLAUDE_CODE:
-        command = f"claude mcp add --transport http deckhand {mcp_url}"
-        if token:
-            command += f' --header "Authorization: Bearer {token}"'
-        steps = [
-            "Open a terminal.",
-            "Run the command below.",
-            'Start "claude" and ask it to list your Anki decks to confirm the connection.',
-        ]
-        return {"client": client_id, "label": label, "steps": steps, "snippet": command, "snippetLabel": "Terminal command"}
-    if client_id == CLIENT_CODEX:
-        lines = ["[mcp_servers.deckhand]", f'url = "{mcp_url}"']
-        if token:
-            lines.append(f'http_headers = {{ "Authorization" = "Bearer {token}" }}')
-        steps = [
-            "Open ~/.codex/config.toml in a text editor (create it if missing).",
-            "Add the block below and save the file.",
-            "Restart Codex. Deckhand tools appear in the next session.",
-        ]
-        return {"client": client_id, "label": label, "steps": steps, "snippet": "\n".join(lines), "snippetLabel": "config.toml block"}
-    steps = [
-        "Open your MCP client's server settings.",
-        "Add a Streamable HTTP MCP server.",
-        "Paste the server URL below.",
-        "Save, then reconnect or refresh the client's tools list.",
-    ]
-    if token:
-        steps.append('Send the access token as an "Authorization: Bearer" header if your client supports custom headers.')
-    return {"client": CLIENT_OTHER, "label": label, "steps": steps, "snippet": mcp_url, "snippetLabel": "Server URL"}
+    recipe = connect_hosts.connect_recipe(client_id, mcp_url, token)
+    return {**recipe, "steps": connect_hosts.plain_step_text(recipe)}
 
 
 def run_connection_checks() -> list[dict[str, Any]]:
@@ -1313,37 +1197,19 @@ def _user_status(value: Any) -> str:
 
 
 def _status_pill(text: str, state: str) -> Any:
-    from aqt.qt import QLabel
-
-    label = QLabel(text)
-    _apply_pill_style(label, state)
-    return label
+    return ui.status_pill(text, state)
 
 
 def _apply_pill_style(label: Any, state: str) -> None:
-    colors = {
-        "ok": ("#0f5132", "#d1e7dd"),
-        "warn": ("#664d03", "#fff3cd"),
-    }
-    fg, bg = colors.get(state, ("#343a40", "#e9ecef"))
-    label.setStyleSheet(f"color: {fg}; background: {bg}; border-radius: 10px; padding: 3px 9px; font-weight: 600;")
+    ui.apply_pill_style(label, state)
 
 
 def _section_frame() -> Any:
-    from aqt.qt import QFrame
-
-    frame = QFrame()
-    frame.setObjectName("deckhand_section")
-    frame.setStyleSheet("#deckhand_section { border: 1px solid #d9d9d9; border-radius: 8px; background: #fafafa; }")
-    return frame
+    return ui.section_frame()
 
 
 def _section_title(text: str) -> Any:
-    from aqt.qt import QLabel
-
-    label = QLabel(text)
-    label.setStyleSheet("font-weight: 700;")
-    return label
+    return ui.section_title(text)
 
 
 def _restart_companion_from_ui(logger=None) -> None:

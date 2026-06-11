@@ -47,8 +47,9 @@ Deckhand's answer: put the assistant *inside* the live Anki runtime, behind a gu
 2. **Restart Anki.** The welcome dialog takes it from there. (Missed it? *Deckhand → Onboarding* replays it anytime.)
 3. **Connect your assistant** from *Deckhand → Management → Connect*:
    - **Claude Desktop** — drag the `Deckhand.mcpb` chip straight into the Claude window and click Install. Done.
-   - **Claude Code** — copy the one-liner: `claude mcp add --transport http deckhand http://127.0.0.1:28765/mcp`
-   - **Codex CLI** — copy the `config.toml` block.
+   - **Claude Code** — install the plugin (connection + skills in one go): `claude plugin marketplace add bentoware/deckhand && claude plugin install deckhand@bentoware`. Last resort, bare MCP only: `claude mcp add --transport http deckhand http://127.0.0.1:28765/mcp`
+   - **Codex CLI** — install the plugin: `codex plugin marketplace add https://github.com/bentoware/deckhand && codex plugin add deckhand@deckhand`. Fallback: copy the `config.toml` MCP block.
+   - **Codex Desktop** — open Plugins, click `+` → Add marketplace, paste `https://github.com/bentoware/deckhand`, then open the Deckhand tab and click Add. Fallback: copy the `config.toml` MCP block.
    - **Anything else** that speaks Streamable HTTP MCP — paste the endpoint URL.
 4. **Say something.** "What's due today?" "Turn this PDF into cards." "Find my leeches and tell me why they keep sinking."
 
@@ -67,8 +68,8 @@ Deckhand is built around a simple idea: *the assistant crews the ship; you capta
 ```sh
 make check          # generated-inventory check, Python tests, Rust tests
 make build          # debug build of the Rust companion
+make run-anki       # sync Deckhand into local Anki and restart the latest installed Anki app
 make package-addon  # dist/deckhand.ankiaddon with the companion bundled
-python3 scripts/build.py sync -- --restart-anki   # live-develop against your local Anki
 make inspect-mcp    # MCP Inspector against the live endpoint
 ```
 

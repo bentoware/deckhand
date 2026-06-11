@@ -7,7 +7,7 @@ Thanks for helping Deckhand keep a steadier watch.
 ```sh
 make check
 make build
-python3 scripts/build.py sync -- --restart-anki
+make run-anki
 ```
 
 Keep changes scoped to the add-on, companion server, schemas, tests, or docs unless the repository grows new public surfaces intentionally.

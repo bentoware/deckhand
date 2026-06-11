@@ -116,8 +116,40 @@ def install_companion_binary(binary: Path, target: Path) -> dict[str, object]:
 def restart_anki(anki_app: str) -> None:
     if platform.system() != "Darwin":
         raise RuntimeError("--restart-anki is currently implemented for macOS only.")
-    subprocess.run(["osascript", "-e", 'tell application "Anki" to quit'], check=False)
-    time.sleep(2)
+    subprocess.run(
+        ["osascript", "-e", 'tell application "Anki" to quit'],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    for _ in range(30):
+        running = subprocess.run(
+            ["pgrep", "-f", r"aqt.run\(\)"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if running.returncode != 0:
+            break
+        time.sleep(0.5)
+    still_running = subprocess.run(
+        ["pgrep", "-f", r"aqt.run\(\)"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if still_running.returncode == 0:
+        subprocess.run(["pkill", "-f", r"aqt.run\(\)"], check=False)
+        for _ in range(20):
+            running = subprocess.run(
+                ["pgrep", "-f", r"aqt.run\(\)"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            if running.returncode != 0:
+                break
+            time.sleep(0.5)
     app_path = Path(anki_app).expanduser()
     if app_path.exists():
         subprocess.run(["open", str(app_path)], check=True)

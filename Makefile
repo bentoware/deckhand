@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: help generate check-catalog test-python test-rust test check build build-release sync inspect-mcp package-addon package-addon-multiplatform clean
+.PHONY: help generate check-catalog test-python test-rust test check build build-release sync run-anki inspect-mcp package-addon package-addon-multiplatform clean
 
 help:
 	$(PYTHON) scripts/build.py --help
@@ -28,6 +28,9 @@ build-release:
 
 sync:
 	$(PYTHON) scripts/build.py sync
+
+run-anki:
+	$(PYTHON) scripts/build.py sync -- --restart-anki
 
 inspect-mcp:
 	$(PYTHON) scripts/build.py inspect-mcp

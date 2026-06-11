@@ -1,0 +1,27 @@
+{
+  "name": "deckhand",
+  "description": "Deckhand connects your AI assistant to your live Anki collection so it can see your decks, turn your sources into well-made cited cards, and help you fix weak ones — with you approving every change.",
+  "author": {
+    "name": "Bentoware",
+    "url": "https://github.com/bentoware/deckhand"
+  },
+  "homepage": "https://deckhandforanki.com",
+  "repository": "https://github.com/bentoware/deckhand",
+  "license": "AGPL-3.0-or-later",
+  "keywords": [
+    "deckhand",
+    "anki",
+    "mcp",
+    "flashcards",
+    "addon",
+    "automation",
+    "runtime",
+    "agent"
+  ],
+  "mcpServers": {
+    "deckhand": {
+      "type": "http",
+      "url": "http://127.0.0.1:28765/mcp"
+    }
+  }
+}

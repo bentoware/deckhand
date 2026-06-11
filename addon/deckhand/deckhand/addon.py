@@ -174,10 +174,6 @@ def _install_menu(mw) -> None:
     management_action.triggered.connect(show_management)
     menu.addAction(management_action)
 
-    developer_panel_action = QAction("Developer Panel", mw)
-    developer_panel_action.triggered.connect(show_developer_panel)
-    menu.addAction(developer_panel_action)
-
     menu_bar = mw.form.menubar
     help_menu = getattr(mw.form, "menuHelp", None)
     if help_menu is not None:
@@ -427,19 +423,12 @@ def show_onboarding() -> None:
     welcome.show_onboarding(mw, open_setup=show_management, logger=_log)
 
 
-def show_management() -> None:
+def show_management(initial_client: str | None = None) -> None:
+    if not isinstance(initial_client, str):
+        initial_client = None
     try:
         from aqt import mw
     except Exception as exc:  # pragma: no cover - only meaningful inside Anki/Qt
         _log("management.unavailable", error=str(exc))
         return
-    management.show_management_dialog(mw, _executor.tools(), logger=_log)
-
-
-def show_developer_panel() -> None:
-    try:
-        from aqt import mw
-    except Exception as exc:  # pragma: no cover - only meaningful inside Anki/Qt
-        _log("developer_panel.unavailable", error=str(exc))
-        return
-    management.show_developer_panel(mw, _executor.tools(), logger=_log)
+    management.show_management_dialog(mw, _executor.tools(), logger=_log, initial_client=initial_client)

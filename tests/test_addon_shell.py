@@ -23,6 +23,7 @@ from deckhand.command_catalog import command_catalog, validate_command_catalog
 from deckhand import dev_tools
 from deckhand import bridge_transport
 from deckhand import import_export_tools
+from deckhand import connect_hosts
 from deckhand import management
 from deckhand import typed_tools
 from deckhand import context_tools
@@ -156,7 +157,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertTrue(all(entry.name.startswith("anki_") for entry in catalog))
         self.assertTrue(all(".dev." not in entry.name for entry in catalog))
 
-    def test_addon_menu_exposes_management_and_developer_panel(self):
+    def test_addon_menu_exposes_onboarding_and_management_only(self):
         source = (ADDON / "deckhand" / "addon.py").read_text(encoding="utf-8")
 
         self.assertIn('QMenu("Deckhand", mw)', source)
@@ -164,9 +165,10 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("onboarding_action.triggered.connect(show_onboarding)", source)
         self.assertIn("welcome.show_onboarding(mw, open_setup=show_management, logger=_log)", source)
         self.assertIn('QAction("Management", mw)', source)
-        self.assertIn('QAction("Developer Panel", mw)', source)
-        self.assertIn("developer_panel_action.triggered.connect(show_developer_panel)", source)
-        self.assertIn("management.show_developer_panel(mw, _executor.tools(), logger=_log)", source)
+        # The developer panel stays reachable from Management's footer button,
+        # but no longer gets its own top-level menu entry.
+        self.assertNotIn('QAction("Developer Panel", mw)', source)
+        self.assertNotIn("show_developer_panel", source)
         self.assertNotIn('QAction("Bridge Status", mw)', source)
         self.assertNotIn("def show_bridge_status", source)
         self.assertNotIn("_show_text_dialog", source)
@@ -243,7 +245,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("management_action.triggered.connect(show_management)", source)
         self.assertNotIn("def show_developer_tools() -> None:", source)
         self.assertIn("management.maybe_show_cdp_banner(mw, logger=_log)", source)
-        self.assertIn("def show_management() -> None:", source)
+        self.assertIn("def show_management(initial_client: str | None = None) -> None:", source)
         self.assertIn("QToolBar", management_source)
         self.assertIn("mw.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)", management_source)
         self.assertNotIn("QDockWidget", management_source)
@@ -507,7 +509,7 @@ class AddonShellTests(unittest.TestCase):
     def test_management_dialog_has_user_facing_tabs(self):
         source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
 
-        self.assertIn('tabs.addTab(_build_connect_tab(tabs, logger=logger), "Connect")', source)
+        self.assertIn('tabs.addTab(_build_connect_tab(tabs, logger=logger, initial_client=initial_client), "Connect")', source)
         self.assertIn('tabs.addTab(_build_status_tab(tabs, anki_tools, logger=logger), "Status")', source)
         self.assertIn('tabs.addTab(_build_server_tab(tabs, logger=logger), "Server")', source)
         self.assertIn('tabs.addTab(_build_skills_tab(tabs, logger=logger), "Skills")', source)
@@ -622,24 +624,55 @@ class AddonShellTests(unittest.TestCase):
         self.assertTrue(any("custom connector" in step for step in desktop["steps"]))
 
         code = management.connect_recipe(management.CLIENT_CLAUDE_CODE, url)
-        self.assertEqual(code["snippet"], f"claude mcp add --transport http deckhand {url}")
+        self.assertEqual(code["snippet"], connect_hosts.CLAUDE_PLUGIN_INSTALL_COMMANDS)
+        self.assertTrue(any(f"claude mcp add --transport http deckhand {url}" in step for step in code["steps"]))
 
         code_with_token = management.connect_recipe(management.CLIENT_CLAUDE_CODE, url, "tok123")
-        self.assertIn('--header "Authorization: Bearer tok123"', code_with_token["snippet"])
+        self.assertEqual(code_with_token["snippet"], f'claude mcp add --transport http deckhand {url} --header "Authorization: Bearer tok123"')
+        self.assertTrue(any(connect_hosts.CLAUDE_PLUGIN_INSTALL_ONE_LINER in step for step in code_with_token["steps"]))
+
+        code_custom_url = management.connect_recipe(management.CLIENT_CLAUDE_CODE, "http://127.0.0.1:9999/mcp")
+        self.assertEqual(code_custom_url["snippet"], "claude mcp add --transport http deckhand http://127.0.0.1:9999/mcp")
+
+        codex_plugin = management.connect_recipe(management.CLIENT_CODEX, url)
+        self.assertEqual(codex_plugin["snippet"], connect_hosts.CODEX_PLUGIN_INSTALL_COMMANDS)
+        self.assertTrue(any(f'url = "{url}"' in step for step in codex_plugin["steps"]))
 
         codex = management.connect_recipe(management.CLIENT_CODEX, url, "tok123")
         self.assertIn("[mcp_servers.deckhand]", codex["snippet"])
         self.assertIn(f'url = "{url}"', codex["snippet"])
         self.assertIn("Bearer tok123", codex["snippet"])
+        self.assertTrue(any(connect_hosts.CODEX_PLUGIN_INSTALL_ONE_LINER in step for step in codex["steps"]))
+
+        codex_desktop = management.connect_recipe(management.CLIENT_CODEX_DESKTOP, url, "tok123")
+        self.assertEqual(codex_desktop["label"], "Codex Desktop")
+        self.assertTrue(any("Quit and reopen Codex Desktop" in step for step in codex_desktop["steps"]))
+        self.assertIn("Bearer tok123", codex_desktop["snippet"])
+
+        codex_desktop_plugin = management.connect_recipe(management.CLIENT_CODEX_DESKTOP, url)
+        self.assertEqual(codex_desktop_plugin["snippet"], connect_hosts.CODEX_PLUGIN_MARKETPLACE_SOURCE)
+        self.assertTrue(any("Add marketplace" in step for step in codex_desktop_plugin["steps"]))
+        self.assertTrue(any("Deckhand marketplace tab" in step for step in codex_desktop_plugin["steps"]))
+        self.assertTrue(any(f'url = "{url}"' in step for step in codex_desktop_plugin["steps"]))
 
         other = management.connect_recipe("unknown-client", url)
         self.assertEqual(other["snippet"], url)
         self.assertTrue(any("Streamable HTTP" in step for step in other["steps"]))
 
+    def test_claude_code_plugin_manifest_matches_recipe_endpoint(self):
+        manifest = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(manifest["name"], "deckhand")
+        server = manifest["mcpServers"]["deckhand"]
+        self.assertEqual(server["type"], "http")
+        self.assertEqual(server["url"], connect_hosts.CLAUDE_PLUGIN_MCP_URL)
+
     def test_claude_desktop_recipe_leads_with_mcpb_extension(self):
         recipe = management.connect_recipe(management.CLIENT_CLAUDE_DESKTOP, "http://127.0.0.1:28765/mcp", "tok123")
 
-        self.assertIn("extension chip", recipe["steps"][0])
+        self.assertIn("Deckhand extension", recipe["steps"][0])
+        raw = connect_hosts.connect_recipe(management.CLIENT_CLAUDE_DESKTOP, "http://127.0.0.1:28765/mcp", "tok123")
+        self.assertEqual(raw["steps"][0].get("embed"), "mcpb")
         self.assertTrue(any("custom connector" in step for step in recipe["steps"]))
         self.assertTrue(any("access token automatically" in step for step in recipe["steps"]))
         self.assertNotIn("tok123", recipe["snippet"])
@@ -675,14 +708,39 @@ class AddonShellTests(unittest.TestCase):
                 baked = mcpb_module.manifest()["user_config"]["token"]["default"]
                 self.assertEqual(baked, settings.persistent_token())
 
-    def test_connect_tab_offers_mcpb_drag_and_save(self):
-        source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
+    def test_shared_recipe_view_offers_mcpb_drag_and_save(self):
+        source = (ADDON / "deckhand" / "ui.py").read_text(encoding="utf-8")
 
-        self.assertIn("def _make_mcpb_section", source)
-        self.assertIn("drag me into Claude Desktop", source)
+        self.assertIn("def make_mcpb_section", source)
+        self.assertIn("Install Deckhand in Claude Desktop", source)
         self.assertIn("mime.setUrls([QUrl.fromLocalFile(str(path))])", source)
         self.assertIn('QPushButton("Save extension...")', source)
-        self.assertIn("mcpb_row_widget.setVisible(client_id == CLIENT_CLAUDE_DESKTOP)", source)
+        # The chip embeds inside the install step instead of trailing the card.
+        self.assertIn('step.get("embed") == "mcpb"', source)
+        self.assertNotIn("mcpb_section.setVisible", source)
+
+    def test_connect_tab_uses_alphabetical_pill_bar_instead_of_dropdown(self):
+        source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
+        ui_source = (ADDON / "deckhand" / "ui.py").read_text(encoding="utf-8")
+        connect_body = source[source.index("def _build_connect_tab") : source.index("def _build_status_tab")]
+        labels = [host["label"] for host in connect_hosts.connect_hosts()]
+
+        self.assertNotIn("QComboBox", connect_body)
+        self.assertNotIn("QComboBox", ui_source)
+        self.assertIn("ui.build_host_pillbar", connect_body)
+        self.assertIn("ui.build_recipe_view", connect_body)
+        self.assertIn("QButtonGroup", ui_source)
+        self.assertIn('layout.addWidget(_section_title("Pick your MCP host"))', connect_body)
+        self.assertEqual(labels, sorted(labels, key=str.lower))
+        self.assertIn("Codex Desktop", labels)
+
+    def test_setup_asset_manifest_reserves_packaged_media_slots(self):
+        manifest = connect_hosts.setup_asset_manifest()
+
+        self.assertIn(connect_hosts.CLIENT_CODEX_DESKTOP, manifest)
+        self.assertTrue(any(path.endswith("step-1.webp") for path in manifest[connect_hosts.CLIENT_CODEX_DESKTOP]))
+        self.assertTrue(any(path.endswith("walkthrough.mp4") for path in manifest[connect_hosts.CLIENT_CLAUDE_DESKTOP]))
+        self.assertTrue((ADDON / "deckhand" / "assets" / "setup" / "README.md").is_file())
 
     def test_connection_checks_map_failures_to_next_actions(self):
         original_health_status = management.companion.health_status
@@ -1018,7 +1076,21 @@ class AddonShellTests(unittest.TestCase):
         source = (ADDON / "deckhand" / "addon.py").read_text(encoding="utf-8")
 
         self.assertIn("welcome.maybe_show_welcome(mw, open_setup=show_management, logger=_log)", source)
+        self.assertIn("initial_client: str | None = None", source)
+        self.assertIn("initial_client=initial_client", source)
         self.assertIn("skills_updates.start_background_sync(mw, logger=_log)", source)
+
+    def test_onboarding_is_a_wizard_with_embedded_guided_setup(self):
+        source = (ADDON / "deckhand" / "welcome.py").read_text(encoding="utf-8")
+
+        self.assertIn("QStackedWidget", source)
+        self.assertIn("Choose your MCP host", source)
+        self.assertIn("connect_hosts.connect_hosts()", source)
+        self.assertIn("connect_hosts.CLIENT_CODEX_DESKTOP", source)
+        self.assertIn("ui.build_recipe_view", source)
+        self.assertIn("management.run_connection_checks()", source)
+        self.assertIn('open_setup(selected_client["id"])', source)
+        self.assertEqual(len(welcome.WIZARD_PAGE_TITLES), 4)
 
     def test_skills_tab_offers_codex_and_update_check(self):
         source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import contextlib
 import io
+import json
 import os
 import tempfile
 import unittest
@@ -292,10 +293,41 @@ class BuildSystemTests(unittest.TestCase):
                     Path("manifest.json"),
                     Path("deckhand/webengine_tools.py"),
                     Path(".codex-plugin/plugin.json"),
+                    Path(".claude-plugin/plugin.json"),
+                    Path(".claude-plugin/marketplace.json"),
                     Path("desktop/package.json"),
                     Path("renderer/main.tsx"),
                 ]
             )
+
+    def test_agent_plugin_manifests_stay_consistent(self) -> None:
+        claude_plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        marketplace = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+        codex_plugin = json.loads((ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        codex_marketplace = json.loads((ROOT / ".agents" / "plugins" / "marketplace.json").read_text(encoding="utf-8"))
+        codex_plugin_mcp = json.loads((ROOT / "plugins" / "deckhand" / ".mcp.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(claude_plugin["name"], "deckhand")
+        self.assertEqual(codex_plugin["name"], "deckhand")
+        # No explicit version: Claude Code falls back to commit-SHA versioning,
+        # so plugin users pick up every push without a manual version bump.
+        self.assertNotIn("version", claude_plugin)
+
+        self.assertEqual(marketplace["name"], "bentoware")
+        entry = marketplace["plugins"][0]
+        self.assertEqual(entry["name"], "deckhand")
+        self.assertEqual(entry["source"], "./")
+
+        # Both plugin formats bundle the same repo-root skills directory:
+        # Claude Code auto-discovers skills/, Codex points at it explicitly.
+        self.assertEqual(codex_plugin["skills"], "skills")
+        self.assertTrue((ROOT / "skills" / "deckhand" / "SKILL.md").exists())
+
+        self.assertEqual(codex_marketplace["name"], "deckhand")
+        self.assertEqual(codex_marketplace["plugins"][0]["name"], "deckhand")
+        self.assertEqual(codex_marketplace["plugins"][0]["source"]["path"], "./plugins/deckhand")
+        self.assertEqual(codex_plugin_mcp["mcpServers"]["deckhand"]["type"], "http")
+        self.assertEqual(codex_plugin_mcp["mcpServers"]["deckhand"]["url"], "http://127.0.0.1:28765/mcp")
 
     def test_package_addon_builds_release_server_by_default(self) -> None:
         build = load_build()
