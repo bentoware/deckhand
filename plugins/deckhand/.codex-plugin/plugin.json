@@ -28,6 +28,8 @@
     "category": "Productivity",
     "capabilities": ["Read", "Write"],
     "websiteURL": "https://github.com/bentoware/deckhand",
+    "composerIcon": "assets/mockups/portrait-scale/portrait-scale-03-cameo-transparent.png",
+    "logo": "assets/mockups/portrait-scale/portrait-scale-03-cameo-transparent.png",
     "defaultPrompt": [
       "Inspect my current Anki review context",
       "Summarize the selected notes in Anki Browser",
