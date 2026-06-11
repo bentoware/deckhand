@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deckhand"
+  short_description: "Use Deckhand for high-quality Anki cards"
+  default_prompt: "Use $deckhand to inspect live Anki context, create source-grounded cards, or improve weak cards safely."
