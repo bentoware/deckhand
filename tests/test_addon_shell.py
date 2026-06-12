@@ -311,16 +311,23 @@ class AddonShellTests(unittest.TestCase):
             log = log_path.read_text(encoding="utf-8")
 
         joined = " ".join(command)
-        self.assertEqual(command[:3], ["cmd.exe", "/d", "/c"])
-        self.assertEqual(Path(command[3]).resolve(), script_path.resolve())
+        self.assertEqual(command[0], "schtasks.exe")
+        self.assertIn("/create", command)
+        self.assertIn("--deckhand-run-task", command)
+        self.assertIn("DeckhandAnkiCdpRestart-12345", command)
+        self.assertIn("anki-cdp-restart.cmd", joined)
         self.assertIn("QTWEBENGINE_REMOTE_DEBUGGING=%PORT%", script)
         self.assertIn(r"C:\Program Files\Anki\anki.exe", script)
         self.assertIn("PID eq %PARENT_PID%", script)
         self.assertIn("IMAGENAME eq anki.exe", script)
+        self.assertIn("restarter started from Task Scheduler", script)
+        self.assertIn("ping -n 2 127.0.0.1 >nul", script)
+        self.assertNotIn("timeout /t", script)
         self.assertIn("anki-cdp-restart.cmd", joined)
         self.assertIn("anki-cdp-restart.log", script)
         self.assertIn("start", script)
-        self.assertIn("scheduled restart worker for pid 12345 on port 9444", log)
+        self.assertIn("prepared restart worker task DeckhandAnkiCdpRestart-12345 for pid 12345 on port 9444", log)
+        self.assertIn("scheduled Task Scheduler handoff DeckhandAnkiCdpRestart-12345", log)
         self.assertNotIn("powershell", joined.lower())
         self.assertNotIn("Stop-Process", joined)
 
@@ -329,12 +336,12 @@ class AddonShellTests(unittest.TestCase):
             missing = Path(temp_dir) / "missing-anki.exe"
             with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXECUTABLE": str(missing)}):
                 with mock.patch.object(management.platform, "system", lambda: "Windows"):
-                    with mock.patch.object(management, "_popen_detached") as popen:
+                    with mock.patch.object(management, "_run_windows_restart_scheduler") as schedule:
                         result = management.restart_anki_with_cdp(9444)
 
         self.assertFalse(result["ok"])
         self.assertIn("could not find Anki", result["detail"])
-        popen.assert_not_called()
+        schedule.assert_not_called()
 
     def test_windows_restart_schedules_restarter_then_requests_graceful_close(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -346,14 +353,14 @@ class AddonShellTests(unittest.TestCase):
                 {"DECKHAND_ANKI_EXECUTABLE": str(executable), "DECKHAND_ANKI_EXTENSION_STATE_ROOT": str(state_root)},
             ):
                 with mock.patch.object(management.platform, "system", lambda: "Windows"):
-                    with mock.patch.object(management, "_popen_detached") as popen:
+                    with mock.patch.object(management, "_run_windows_restart_scheduler") as schedule:
                         with mock.patch.object(management, "_request_anki_close_for_restart", return_value={"ok": True}) as close:
                             result = management.restart_anki_with_cdp(9555)
 
         self.assertTrue(result["ok"])
-        self.assertEqual(result["command"][:3], ["cmd.exe", "/d", "/c"])
+        self.assertEqual(result["command"][0], "schtasks.exe")
         self.assertIn("anki-cdp-restart.cmd", " ".join(result["command"]))
-        popen.assert_called_once()
+        schedule.assert_called_once()
         close.assert_called_once()
 
     def test_windows_restart_reports_close_request_failure(self):
@@ -362,7 +369,7 @@ class AddonShellTests(unittest.TestCase):
             executable.write_text("", encoding="utf-8")
             with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXECUTABLE": str(executable)}):
                 with mock.patch.object(management.platform, "system", lambda: "Windows"):
-                    with mock.patch.object(management, "_popen_detached"):
+                    with mock.patch.object(management, "_run_windows_restart_scheduler"):
                         with mock.patch.object(
                             management,
                             "_request_anki_close_for_restart",
@@ -372,6 +379,34 @@ class AddonShellTests(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertIn("close unavailable", result["detail"])
+
+    def test_windows_restart_scheduler_creates_and_runs_task(self):
+        command = [
+            "schtasks.exe",
+            "/create",
+            "/tn",
+            "DeckhandAnkiCdpRestart-123",
+            "/tr",
+            '"cmd.exe" /d /c "C:\\Temp\\anki-cdp-restart.cmd"',
+            "/sc",
+            "once",
+            "/st",
+            "12:34",
+            "/f",
+            "--deckhand-run-task",
+            "DeckhandAnkiCdpRestart-123",
+        ]
+
+        with mock.patch.object(management.subprocess, "run") as run:
+            run.return_value = SimpleNamespace(returncode=0, stdout="", stderr="")
+            management._run_windows_restart_scheduler(command)
+
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args_list[0].args[0], command[: command.index("--deckhand-run-task")])
+        self.assertEqual(
+            run.call_args_list[1].args[0],
+            ["schtasks.exe", "/run", "/tn", "DeckhandAnkiCdpRestart-123"],
+        )
 
     def test_management_uses_anki_launcher_by_default(self):
         path = management.anki_executable_path()

@@ -1157,8 +1157,20 @@ def restart_anki_with_cdp(port: int | None = None, logger=None) -> dict[str, Any
     if logger:
         logger("management.cdp_restart_requested", command=command, port=port)
     try:
-        _popen_detached(command)  # noqa: S603 - explicit local app restart command
+        if system == "windows":
+            _run_windows_restart_scheduler(command)
+        else:
+            _popen_detached(command)  # noqa: S603 - explicit local app restart command
     except OSError as exc:
+        if logger:
+            logger("management.cdp_restart_failed", error=str(exc), command=command, port=port)
+        return {
+            "ok": False,
+            "port": port,
+            "command": command,
+            "detail": f"Deckhand could not schedule the Anki restart: {exc}",
+        }
+    except subprocess.SubprocessError as exc:
         if logger:
             logger("management.cdp_restart_failed", error=str(exc), command=command, port=port)
         return {
@@ -1224,14 +1236,39 @@ def _popen_detached(command: list[str]) -> subprocess.Popen:
     return subprocess.Popen(command, start_new_session=True)  # noqa: S603 - explicit local app restart command
 
 
+def _run_windows_restart_scheduler(command: list[str]) -> None:
+    marker = "--deckhand-run-task"
+    if marker not in command:
+        raise subprocess.SubprocessError("missing Task Scheduler run marker")
+    marker_index = command.index(marker)
+    if marker_index + 1 >= len(command):
+        raise subprocess.SubprocessError("missing Task Scheduler task name")
+    create_command = command[:marker_index]
+    task_name = command[marker_index + 1]
+    result = subprocess.run(create_command, capture_output=True, text=True, timeout=15)  # noqa: S603
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or f"exit code {result.returncode}").strip()
+        raise subprocess.SubprocessError(detail)
+    result = subprocess.run(
+        ["schtasks.exe", "/run", "/tn", task_name],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )  # noqa: S603
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or f"exit code {result.returncode}").strip()
+        raise subprocess.SubprocessError(detail)
+
+
 def _write_windows_restart_command(port: int, *, wait_for_pid: int, executable: Path) -> list[str]:
     log_dir = companion.default_log_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "anki-cdp-restart.log"
     script_path = log_dir / "anki-cdp-restart.cmd"
+    task_name = f"DeckhandAnkiCdpRestart-{int(wait_for_pid)}"
     _append_windows_restart_log(
         log_path,
-        f"scheduled restart worker for pid {int(wait_for_pid)} on port {int(port)} using {executable}",
+        f"prepared restart worker task {task_name} for pid {int(wait_for_pid)} on port {int(port)} using {executable}",
     )
     script = "\r\n".join(
         [
@@ -1241,19 +1278,23 @@ def _write_windows_restart_command(port: int, *, wait_for_pid: int, executable: 
             f'set "ANKI_EXE={executable}"',
             f'set "PARENT_PID={int(wait_for_pid)}"',
             f'set "PORT={int(port)}"',
-            '>>"%LOG_PATH%" echo [%DATE% %TIME%] restarter started for pid %PARENT_PID% on port %PORT%',
+            f'set "TASK_NAME={task_name}"',
+            '>>"%LOG_PATH%" echo [%DATE% %TIME%] restarter started from Task Scheduler for pid %PARENT_PID% on port %PORT%',
             "set /a WAITED=0",
             ":wait_parent",
             'tasklist /FI "PID eq %PARENT_PID%" /FO CSV /NH | findstr /C:"%PARENT_PID%" >nul 2>nul',
             "if errorlevel 1 goto wait_anki",
             "if %WAITED% GEQ 180 (",
             '  >>"%LOG_PATH%" echo [%DATE% %TIME%] timed out waiting for pid %PARENT_PID%',
+            '  schtasks.exe /delete /tn "%TASK_NAME%" /f >nul 2>nul',
             "  exit /b 2",
             ")",
-            "timeout /t 1 /nobreak >nul",
+            'if %WAITED% EQU 0 >>"%LOG_PATH%" echo [%DATE% %TIME%] waiting for parent pid %PARENT_PID% to exit',
+            "ping -n 2 127.0.0.1 >nul",
             "set /a WAITED+=1",
             "goto wait_parent",
             ":wait_anki",
+            '>>"%LOG_PATH%" echo [%DATE% %TIME%] parent pid %PARENT_PID% exited; waiting for anki.exe to disappear',
             "set /a WAITED_ANKI=0",
             ":wait_anki_loop",
             'tasklist /FI "IMAGENAME eq anki.exe" /FO CSV /NH | findstr /I /C:"anki.exe" >nul 2>nul',
@@ -1262,7 +1303,8 @@ def _write_windows_restart_command(port: int, *, wait_for_pid: int, executable: 
             '  >>"%LOG_PATH%" echo [%DATE% %TIME%] anki.exe still visible; attempting relaunch anyway',
             "  goto launch_anki",
             ")",
-            "timeout /t 1 /nobreak >nul",
+            'if %WAITED_ANKI% EQU 0 >>"%LOG_PATH%" echo [%DATE% %TIME%] anki.exe still visible; polling before relaunch',
+            "ping -n 2 127.0.0.1 >nul",
             "set /a WAITED_ANKI+=1",
             "goto wait_anki_loop",
             ":launch_anki",
@@ -1271,12 +1313,30 @@ def _write_windows_restart_command(port: int, *, wait_for_pid: int, executable: 
             'start "" "%ANKI_EXE%"',
             "set RC=%ERRORLEVEL%",
             '>>"%LOG_PATH%" echo [%DATE% %TIME%] start returned %RC%',
+            'schtasks.exe /delete /tn "%TASK_NAME%" /f >nul 2>nul',
             "exit /b %RC%",
             "",
         ]
     )
     script_path.write_text(script, encoding="utf-8")
-    return ["cmd.exe", "/d", "/c", str(script_path)]
+    start_time = time.strftime("%H:%M", time.localtime(time.time() + 60))
+    task_command = f'"{os.environ.get("ComSpec", "cmd.exe")}" /d /c "{script_path}"'
+    _append_windows_restart_log(log_path, f"scheduled Task Scheduler handoff {task_name} for {start_time}")
+    return [
+        "schtasks.exe",
+        "/create",
+        "/tn",
+        task_name,
+        "/tr",
+        task_command,
+        "/sc",
+        "once",
+        "/st",
+        start_time,
+        "/f",
+        "--deckhand-run-task",
+        task_name,
+    ]
 
 
 def _append_windows_restart_log(log_path: Path, message: str) -> None:
