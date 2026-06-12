@@ -255,6 +255,16 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("Qt,", connect_tab_source)
         self.assertIn("Qt.ScrollBarPolicy.ScrollBarAlwaysOff", connect_tab_source)
 
+    def test_connect_tab_ready_pill_reflects_runtime_state(self):
+        management_source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
+        connect_tab_source = management_source.split("def _build_connect_tab", 1)[1].split(
+            "def _build_status_tab", 1
+        )[0]
+
+        # The pill must be derived from companion/bridge state, never hardcoded.
+        self.assertNotIn('_status_pill("Ready", "ok")', connect_tab_source)
+        self.assertIn('"Ready" if connected else "Needs attention"', connect_tab_source)
+
     def test_management_restart_command_sets_qtwebengine_debug_port(self):
         original = os.environ.get("DECKHAND_ANKI_EXECUTABLE")
         os.environ["DECKHAND_ANKI_EXECUTABLE"] = "/Applications/Anki.app/Contents/MacOS/launcher"
@@ -520,6 +530,19 @@ class AddonShellTests(unittest.TestCase):
 
                 self.assertTrue(prepared.exists())
                 self.assertFalse(old_dir.exists())
+
+    def test_companion_runtime_file_candidates_include_legacy_dirs(self):
+        with mock.patch.dict(os.environ):
+            os.environ.pop("DECKHAND_COMPANION_PID_FILE", None)
+            os.environ.pop("DECKHAND_ANKI_EXTENSION_STATE_ROOT", None)
+            candidates = companion._runtime_file_candidates("DECKHAND_COMPANION_PID_FILE", "companion.pid")
+            primary = companion.default_runtime_dir() / "companion.pid"
+            state_legacy = state_paths.work_root() / "runtime" / "companion.pid"
+            pre_018_legacy = Path.home() / "Library" / "Application Support" / "Deckhand" / "runtime" / "companion.pid"
+
+        self.assertEqual(candidates[0], primary)
+        self.assertIn(state_legacy, candidates)
+        self.assertIn(pre_018_legacy, candidates)
 
     def test_companion_ensure_running_defers_to_stopping_upgrade(self):
         original_stop_stale = companion.stop_stale_recorded_companion

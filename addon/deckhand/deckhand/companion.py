@@ -479,15 +479,22 @@ def owner_file() -> Path:
 
 
 def _runtime_file_candidates(env_var: str, name: str) -> list[Path]:
-    """Preferred path first, then the pre-0.1.10 location (the state root) so
-    upgrades on Windows still find files written under the roaming profile."""
+    """Preferred path first, then legacy locations so upgrades can still find
+    and stop helpers recorded by older add-on versions: the state root
+    (0.1.8-0.1.9; the Windows roaming profile) and the hardcoded pre-0.1.8
+    directory (which was used on every platform back then)."""
     configured = os.environ.get(env_var)
     if configured:
         return [Path(configured).expanduser()]
     paths = [default_runtime_dir() / name]
-    legacy = work_root() / "runtime" / name
-    if legacy not in paths:
-        paths.append(legacy)
+    legacy_dirs = [
+        work_root() / "runtime",
+        Path.home() / "Library" / "Application Support" / "Deckhand" / "runtime",
+    ]
+    for legacy in legacy_dirs:
+        candidate = legacy / name
+        if candidate not in paths:
+            paths.append(candidate)
     return paths
 
 

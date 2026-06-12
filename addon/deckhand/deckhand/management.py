@@ -290,7 +290,9 @@ def _build_connect_tab(parent: Any, logger=None, initial_client: str | None = No
     layout = QVBoxLayout(widget)
     layout.setSpacing(12)
 
-    mcp_url = str(companion_status()["mcpUrl"])
+    status = companion_status()
+    mcp_url = str(status["mcpUrl"])
+    connected = status["runtime"].get("state") == "running" and status["ankiBridge"].get("state") == "connected"
     token = settings.persistent_token() if settings.require_mcp_token() else None
     selected_client = {"id": connect_hosts.normalize_client_id(initial_client)}
 
@@ -299,8 +301,12 @@ def _build_connect_tab(parent: Any, logger=None, initial_client: str | None = No
     ready_layout.setContentsMargins(14, 12, 14, 12)
     ready_layout.setSpacing(8)
     ready_header = QHBoxLayout()
-    ready_header.addWidget(_status_pill("Ready", "ok"))
-    ready_text = QLabel("Deckhand is running locally. Choose where you want Anki tools to appear, then follow the steps below.")
+    ready_header.addWidget(_status_pill("Ready" if connected else "Needs attention", "ok" if connected else "warn"))
+    ready_text = QLabel(
+        "Deckhand is running locally. Choose where you want Anki tools to appear, then follow the steps below."
+        if connected
+        else "Deckhand is not fully connected yet. Run a connection test on the Status tab, then come back here."
+    )
     ready_text.setWordWrap(True)
     ready_header.addWidget(ready_text, 1)
     ready_layout.addLayout(ready_header)
