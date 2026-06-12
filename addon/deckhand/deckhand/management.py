@@ -5,6 +5,7 @@ import os
 import platform
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -96,12 +97,12 @@ def maybe_show_cdp_banner(mw: Any, logger=None) -> None:
     global _banner_dock
     if _banner_dismissed or os.environ.get("DECKHAND_CDP_BANNER_DISABLED") == "1":
         return
-    if settings.cdp_banner_dismissed():
-        return
     status = cdp_status()
     if status["open"]:
         # Healthy needs no banner; the management dialog reports the details.
         return
+    if settings.cdp_banner_dismissed():
+        settings.set_cdp_banner_dismissed(False)
     if _banner_dock is not None:
         return
     try:
@@ -145,7 +146,7 @@ def _make_cdp_banner_widget(dock: Any, status: dict[str, Any], logger=None) -> A
     row.addWidget(learn_more)
 
     restart = QPushButton(BANNER_PRIMARY_ACTION)
-    restart.clicked.connect(lambda _checked=False: restart_anki_with_cdp(status["port"], logger=logger))
+    restart.clicked.connect(lambda _checked=False: _restart_anki_for_deckhand_from_ui(widget, status["port"], logger=logger))
     restart.setDefault(True)
     row.addWidget(restart)
 
@@ -419,7 +420,7 @@ def _build_status_tab(parent: Any, anki_tools: list[str], logger=None) -> Any:
     test_button.clicked.connect(lambda _checked=False: run_test())
     webengine_restart_button = QPushButton(BANNER_PRIMARY_ACTION)
     webengine_restart_button.clicked.connect(
-        lambda _checked=False: restart_anki_with_cdp(cdp_status()["port"], logger=logger)
+        lambda _checked=False: _restart_anki_for_deckhand_from_ui(widget, cdp_status()["port"], logger=logger)
     )
     button_row = QHBoxLayout()
     button_row.addWidget(test_button)
@@ -1009,7 +1010,7 @@ def _build_webengine_tab(parent: Any, logger=None) -> Any:
     layout.addRow("Launch env", QLabel(str(cdp["launchEnv"])))
     restart = QPushButton(BANNER_PRIMARY_ACTION)
     restart.setEnabled(not bool(cdp["open"]))
-    restart.clicked.connect(lambda _checked=False: restart_anki_with_cdp(cdp["port"], logger=logger))
+    restart.clicked.connect(lambda _checked=False: _restart_anki_for_deckhand_from_ui(widget, cdp["port"], logger=logger))
     layout.addRow("Action", restart)
     return widget
 
@@ -1118,27 +1119,75 @@ def companion_module_restart(logger=None) -> dict[str, Any]:
     return companion.restart_companion(logger=logger)
 
 
+def _restart_anki_for_deckhand_from_ui(parent: Any, port: int | None = None, logger=None) -> dict[str, Any]:
+    from aqt.qt import QMessageBox
+
+    result = restart_anki_with_cdp(port, logger=logger)
+    if not result.get("ok"):
+        QMessageBox.warning(
+            parent,
+            "Restart Anki for Deckhand",
+            str(result.get("detail") or "Deckhand could not schedule the Anki restart."),
+        )
+    return result
+
+
 def restart_anki_with_cdp(port: int | None = None, logger=None) -> dict[str, Any]:
     port = port or cdp_port()
-    if platform.system().lower() == "windows":
-        # restart_command builds POSIX shell scripts; there is no Windows recipe yet.
+    system = platform.system().lower()
+    if system == "windows":
+        executable = windows_anki_executable_path()
+        validation_error = _invalid_restart_executable_detail(executable)
+        if validation_error:
+            if logger:
+                logger("management.cdp_restart_invalid_executable", executable=str(executable), error=validation_error)
+            return {"ok": False, "port": port, "detail": validation_error}
+        command = restart_command(port, wait_for_pid=os.getpid(), executable=executable)
+    else:
+        command = restart_command(port)
+    if logger:
+        logger("management.cdp_restart_requested", command=command, port=port)
+    try:
+        _popen_detached(command)  # noqa: S603 - explicit local app restart command
+    except OSError as exc:
         if logger:
-            logger("management.cdp_restart_unsupported", platform="windows", port=port)
+            logger("management.cdp_restart_failed", error=str(exc), command=command, port=port)
         return {
             "ok": False,
             "port": port,
-            "detail": "CDP restart is not supported on Windows yet; restart Anki manually with "
-            f"QTWEBENGINE_REMOTE_DEBUGGING={port} set.",
+            "command": command,
+            "detail": f"Deckhand could not schedule the Anki restart: {exc}",
         }
-    command = restart_command(port)
-    if logger:
-        logger("management.cdp_restart_requested", command=command, port=port)
-    subprocess.Popen(command, start_new_session=True)  # noqa: S603 - explicit local app restart command
+    if system == "windows":
+        close_result = _request_anki_close_for_restart(logger=logger)
+        if not close_result.get("ok"):
+            return {
+                "ok": False,
+                "port": port,
+                "command": command,
+                "detail": str(close_result.get("detail") or "Deckhand could not ask Anki to close for restart."),
+            }
     return {"ok": True, "port": port, "command": command}
 
 
-def restart_command(port: int | None = None) -> list[str]:
+def restart_command(port: int | None = None, wait_for_pid: int | None = None, executable: Path | None = None) -> list[str]:
     port = port or cdp_port()
+    if platform.system().lower() == "windows":
+        executable = executable or windows_anki_executable_path()
+        wait_for_pid = wait_for_pid or os.getpid()
+        script = (
+            "$ErrorActionPreference = 'Stop'; "
+            f"$parentPid = {int(wait_for_pid)}; "
+            "$deadline = (Get-Date).AddSeconds(60); "
+            "while ((Get-Date) -lt $deadline) { "
+            "if (-not (Get-Process -Id $parentPid -ErrorAction SilentlyContinue)) { break }; "
+            "Start-Sleep -Milliseconds 500; "
+            "}; "
+            "if (Get-Process -Id $parentPid -ErrorAction SilentlyContinue) { exit 2 }; "
+            f"$env:QTWEBENGINE_REMOTE_DEBUGGING = '{port}'; "
+            f"Start-Process -FilePath {ps_quote(str(executable))}"
+        )
+        return ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script]
     if platform.system() == "Darwin":
         executable = anki_executable_path()
         log_path = Path.home() / "Library" / "Logs" / "Deckhand" / "anki-cdp-restart.log"
@@ -1170,6 +1219,42 @@ def restart_command(port: int | None = None) -> list[str]:
     ]
 
 
+def _popen_detached(command: list[str]) -> subprocess.Popen:
+    if platform.system().lower() == "windows":
+        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+        if flags:
+            return subprocess.Popen(command, creationflags=flags)  # noqa: S603 - explicit local app restart command
+    return subprocess.Popen(command, start_new_session=True)  # noqa: S603 - explicit local app restart command
+
+
+def _request_anki_close_for_restart(logger=None) -> dict[str, Any]:
+    try:
+        from aqt import mw
+        from aqt.qt import QTimer
+    except Exception as exc:  # pragma: no cover - only meaningful inside Anki/Qt
+        if logger:
+            logger("management.cdp_restart_close_unavailable", error=str(exc))
+        return {"ok": False, "detail": f"Deckhand could not ask Anki to close for restart: {exc}"}
+
+    close = getattr(mw, "close", None)
+    if not callable(close):
+        if logger:
+            logger("management.cdp_restart_close_unavailable", error="mw.close_missing")
+        return {"ok": False, "detail": "Deckhand could not ask Anki to close for restart."}
+    QTimer.singleShot(0, close)
+    if logger:
+        logger("management.cdp_restart_close_requested")
+    return {"ok": True}
+
+
+def _invalid_restart_executable_detail(executable: Path) -> str:
+    if not executable.exists():
+        return f"Deckhand could not find Anki at {executable}. Set DECKHAND_ANKI_EXECUTABLE to Anki's anki.exe path and try again."
+    if not executable.is_file():
+        return f"Deckhand found {executable}, but it is not an executable file."
+    return ""
+
+
 def anki_executable_path() -> Path:
     configured = os.environ.get("DECKHAND_ANKI_EXECUTABLE")
     if configured:
@@ -1182,8 +1267,35 @@ def anki_executable_path() -> Path:
     return app_path / "Contents" / "MacOS" / "launcher"
 
 
+def windows_anki_executable_path() -> Path:
+    configured = os.environ.get("DECKHAND_ANKI_EXECUTABLE")
+    if configured:
+        return Path(configured).expanduser()
+    executable = Path(sys.executable)
+    if executable.name.lower() == "anki.exe":
+        return executable
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    candidates = []
+    if local_app_data:
+        candidates.append(Path(local_app_data) / "Programs" / "Anki" / "anki.exe")
+    candidates.extend(
+        [
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Anki" / "anki.exe",
+            Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Anki" / "anki.exe",
+        ]
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0] if candidates else Path(r"C:\Program Files\Anki\anki.exe")
+
+
 def sh_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def ps_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
 
 
 def _port_open(host: str, port: int) -> bool:

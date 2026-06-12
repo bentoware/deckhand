@@ -27,6 +27,10 @@ enum Command {
         /// Address to bind for the local product server.
         #[arg(long, default_value = "127.0.0.1:28765")]
         bind: SocketAddr,
+
+        /// Parent Anki process ID; when provided, the helper exits after the parent dies.
+        #[arg(long)]
+        parent_pid: Option<u32>,
     },
 }
 
@@ -37,8 +41,8 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     tracing::info!(command = ?cli.command, "deckhand companion starting");
     match cli.command {
-        Command::Serve { bind } => {
-            server_shell::serve(bind).await?;
+        Command::Serve { bind, parent_pid } => {
+            server_shell::serve(bind, parent_pid).await?;
         }
     }
 

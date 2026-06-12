@@ -113,8 +113,26 @@ class SafeBridgeClient:
             error = str(message.get("params", {}).get("error", "bridge_rejected"))
             bridge_status.update("disconnected", f"Anki bridge rejected: {error}")
             self._log("safe_bridge.rejected", error=error)
+            if error == "companion_takeover_newer_addon":
+                self._restart_companion_after_takeover()
             return False
         return True
+
+    def _restart_companion_after_takeover(self) -> None:
+        self._log("safe_bridge.takeover_restart_requested")
+        time.sleep(float(os.environ.get("DECKHAND_COMPANION_TAKEOVER_RESTART_DELAY_SECONDS", "0.5")))
+        try:
+            from . import companion
+
+            status = companion.ensure_running(logger=self._logger, force=True)
+            self._log(
+                "safe_bridge.takeover_restart_finished",
+                state=status.get("state"),
+                detail=status.get("detail"),
+                pid=status.get("pid"),
+            )
+        except Exception as exc:  # noqa: BLE001 - bridge retry loop must survive takeover failures
+            self._log("safe_bridge.takeover_restart_failed", error=str(exc))
 
 
 def bridge_hello_payload(registry: dict[str, Any], env: dict[str, str] | None = None) -> dict[str, Any]:

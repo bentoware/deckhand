@@ -6,6 +6,7 @@ use http_body_util::{BodyExt, Full};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha1::{Digest, Sha1};
+use std::cmp::Ordering as CmpOrdering;
 use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
@@ -15,7 +16,7 @@ use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot, Mutex};
-use tokio::time::{timeout, Duration};
+use tokio::time::{sleep, timeout, Duration};
 use tower_service::Service;
 use tracing::info;
 
@@ -382,24 +383,39 @@ fn anki_sdk_reference_paths() -> (String, String) {
     )
 }
 
-pub async fn serve(bind: SocketAddr) -> Result<()> {
+pub async fn serve(bind: SocketAddr, parent_pid: Option<u32>) -> Result<()> {
     let listener = TcpListener::bind(bind)
         .await
         .with_context(|| format!("failed to bind Deckhand server on {bind}"))?;
     let local_addr = listener.local_addr()?;
-    info!(%local_addr, "deckhand companion server listening");
+    let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<String>(4);
+    if let Some(pid) = parent_pid {
+        tokio::spawn(watch_parent_process(pid, shutdown_tx.clone()));
+    }
+    info!(%local_addr, ?parent_pid, "deckhand companion server listening");
 
     loop {
-        let (stream, peer_addr) = listener.accept().await?;
-        tokio::spawn(async move {
-            if let Err(error) = handle_connection(stream).await {
-                tracing::warn!(%peer_addr, %error, "request failed");
+        tokio::select! {
+            shutdown = shutdown_rx.recv() => {
+                let reason = shutdown.unwrap_or_else(|| "shutdown_channel_closed".to_string());
+                info!(%reason, "deckhand companion server shutting down");
+                break;
             }
-        });
+            accepted = listener.accept() => {
+                let (stream, peer_addr) = accepted?;
+                let connection_shutdown_tx = shutdown_tx.clone();
+                tokio::spawn(async move {
+                    if let Err(error) = handle_connection(stream, connection_shutdown_tx).await {
+                        tracing::warn!(%peer_addr, %error, "request failed");
+                    }
+                });
+            }
+        }
     }
+    Ok(())
 }
 
-async fn handle_connection(mut stream: TcpStream) -> Result<()> {
+async fn handle_connection(mut stream: TcpStream, shutdown_tx: mpsc::Sender<String>) -> Result<()> {
     let request = read_http_request(&mut stream).await?;
     let path = parse_path(&request);
     if path == "/ws/anki" && request.to_ascii_lowercase().contains("upgrade: websocket") {
@@ -407,7 +423,7 @@ async fn handle_connection(mut stream: TcpStream) -> Result<()> {
             return write_response(&mut stream, 401, "application/json", &unauthorized_body())
                 .await;
         }
-        return handle_anki_bridge(stream, &request).await;
+        return handle_anki_bridge(stream, &request, shutdown_tx).await;
     }
     if path == "/mcp" && parse_method(&request) != "OPTIONS" {
         if mcp_token_required() && !authorized_internal_request(&request) {
@@ -638,7 +654,11 @@ fn route(path: &str) -> (u16, &'static str, Vec<u8>) {
     }
 }
 
-async fn handle_anki_bridge(mut stream: TcpStream, request: &str) -> Result<()> {
+async fn handle_anki_bridge(
+    mut stream: TcpStream,
+    request: &str,
+    shutdown_tx: mpsc::Sender<String>,
+) -> Result<()> {
     let accept = websocket_accept_value(request)?;
     let response = format!(
         "HTTP/1.1 101 Switching Protocols\r\n\
@@ -666,6 +686,27 @@ async fn handle_anki_bridge(mut stream: TcpStream, request: &str) -> Result<()> 
             )
             .await?;
             return Err(error);
+        }
+        if let Some(addon_version) = bridge_addon_version(&parsed) {
+            if version_is_newer(addon_version, env!("CARGO_PKG_VERSION")) {
+                send_ws_text(
+                    &mut stream,
+                    &json!({
+                        "method": "anki_bridge_reject",
+                        "params": {
+                            "error": "companion_takeover_newer_addon",
+                            "addonVersion": addon_version,
+                            "companionVersion": env!("CARGO_PKG_VERSION")
+                        }
+                    })
+                    .to_string(),
+                )
+                .await?;
+                let _ = shutdown_tx
+                    .send("newer_anki_addon_bridge_hello".to_string())
+                    .await;
+                return Ok(());
+            }
         }
         send_ws_text(
             &mut stream,
@@ -725,6 +766,76 @@ async fn handle_anki_bridge(mut stream: TcpStream, request: &str) -> Result<()> 
         }
     }
     Ok(())
+}
+
+async fn watch_parent_process(parent_pid: u32, shutdown_tx: mpsc::Sender<String>) {
+    if parent_pid == 0 {
+        return;
+    }
+    while process_alive(parent_pid) {
+        sleep(Duration::from_secs(2)).await;
+    }
+    let _ = shutdown_tx
+        .send(format!("parent_process_exited:{parent_pid}"))
+        .await;
+}
+
+fn bridge_addon_version(message: &Value) -> Option<&str> {
+    message
+        .pointer("/params/addonVersion")
+        .and_then(Value::as_str)
+}
+
+fn version_is_newer(candidate: &str, current: &str) -> bool {
+    compare_versions(candidate, current) == CmpOrdering::Greater
+}
+
+fn compare_versions(left: &str, right: &str) -> CmpOrdering {
+    let left_parts = version_parts(left);
+    let right_parts = version_parts(right);
+    let len = left_parts.len().max(right_parts.len());
+    for index in 0..len {
+        let left_part = *left_parts.get(index).unwrap_or(&0);
+        let right_part = *right_parts.get(index).unwrap_or(&0);
+        match left_part.cmp(&right_part) {
+            CmpOrdering::Equal => {}
+            ordering => return ordering,
+        }
+    }
+    CmpOrdering::Equal
+}
+
+fn version_parts(value: &str) -> Vec<u64> {
+    value
+        .split(|ch: char| !ch.is_ascii_digit())
+        .filter(|part| !part.is_empty())
+        .map(|part| part.parse::<u64>().unwrap_or(0))
+        .collect()
+}
+
+#[cfg(unix)]
+fn process_alive(pid: u32) -> bool {
+    let result = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(windows)]
+fn process_alive(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle == 0 {
+            return false;
+        }
+        let mut exit_code = 0_u32;
+        let ok = GetExitCodeProcess(handle, &mut exit_code);
+        CloseHandle(handle);
+        ok != 0 && exit_code == STILL_ACTIVE
+    }
 }
 
 fn validate_anki_bridge_hello(message: &Value) -> Result<()> {
@@ -1138,6 +1249,29 @@ mod tests {
             .to_string()
             .contains("pairing_token"));
         std::env::remove_var("DECKHAND_ANKI_BRIDGE_TOKEN");
+    }
+
+    #[test]
+    fn compares_addon_versions_for_graceful_takeover() {
+        assert!(version_is_newer("0.1.12", "0.1.11"));
+        assert!(version_is_newer("0.2.0", "0.1.99"));
+        assert!(!version_is_newer("0.1.11", "0.1.11"));
+        assert!(!version_is_newer("0.1.10", "0.1.11"));
+        assert_eq!(compare_versions("0.1.11", "0.1.11"), CmpOrdering::Equal);
+    }
+
+    #[test]
+    fn reads_addon_version_from_bridge_hello() {
+        let message = json!({
+            "method": "anki_bridge_hello",
+            "params": {
+                "protocolVersion": "deckhand.ankiBridge.v1",
+                "addonVersion": "0.1.12",
+                "tools": [{ "name": "anki_runtime_info" }]
+            }
+        });
+
+        assert_eq!(bridge_addon_version(&message), Some("0.1.12"));
     }
 
     #[tokio::test]

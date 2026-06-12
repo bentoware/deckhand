@@ -286,6 +286,72 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("for _ in $(seq 1 30)", joined)
         self.assertNotIn("sleep 2", joined)
 
+    def test_management_windows_restart_command_sets_qtwebengine_debug_port(self):
+        original = os.environ.get("DECKHAND_ANKI_EXECUTABLE")
+        os.environ["DECKHAND_ANKI_EXECUTABLE"] = r"C:\Program Files\Anki\anki.exe"
+        try:
+            with mock.patch.object(management.platform, "system", lambda: "Windows"):
+                command = management.restart_command(9444)
+        finally:
+            if original is None:
+                os.environ.pop("DECKHAND_ANKI_EXECUTABLE", None)
+            else:
+                os.environ["DECKHAND_ANKI_EXECUTABLE"] = original
+
+        joined = " ".join(command)
+        self.assertEqual(command[:4], ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass"])
+        self.assertIn("QTWEBENGINE_REMOTE_DEBUGGING = '9444'", joined)
+        self.assertIn(r"C:\Program Files\Anki\anki.exe", joined)
+        self.assertIn("Get-Process -Id", joined)
+        self.assertIn("$parentPid", joined)
+        self.assertIn("Start-Process -FilePath", joined)
+        self.assertNotIn("Stop-Process", joined)
+
+    def test_windows_restart_validates_executable_before_scheduling(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            missing = Path(temp_dir) / "missing-anki.exe"
+            with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXECUTABLE": str(missing)}):
+                with mock.patch.object(management.platform, "system", lambda: "Windows"):
+                    with mock.patch.object(management, "_popen_detached") as popen:
+                        result = management.restart_anki_with_cdp(9444)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("could not find Anki", result["detail"])
+        popen.assert_not_called()
+
+    def test_windows_restart_schedules_restarter_then_requests_graceful_close(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            executable = Path(temp_dir) / "anki.exe"
+            executable.write_text("", encoding="utf-8")
+            with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXECUTABLE": str(executable)}):
+                with mock.patch.object(management.platform, "system", lambda: "Windows"):
+                    with mock.patch.object(management, "_popen_detached") as popen:
+                        with mock.patch.object(management, "_request_anki_close_for_restart", return_value={"ok": True}) as close:
+                            result = management.restart_anki_with_cdp(9555)
+
+        self.assertTrue(result["ok"])
+        self.assertIn(str(executable), " ".join(result["command"]))
+        self.assertIn("Get-Process -Id", " ".join(result["command"]))
+        popen.assert_called_once()
+        close.assert_called_once()
+
+    def test_windows_restart_reports_close_request_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            executable = Path(temp_dir) / "anki.exe"
+            executable.write_text("", encoding="utf-8")
+            with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXECUTABLE": str(executable)}):
+                with mock.patch.object(management.platform, "system", lambda: "Windows"):
+                    with mock.patch.object(management, "_popen_detached"):
+                        with mock.patch.object(
+                            management,
+                            "_request_anki_close_for_restart",
+                            return_value={"ok": False, "detail": "close unavailable"},
+                        ):
+                            result = management.restart_anki_with_cdp(9555)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("close unavailable", result["detail"])
+
     def test_management_uses_anki_launcher_by_default(self):
         path = management.anki_executable_path()
 
@@ -721,7 +787,7 @@ class AddonShellTests(unittest.TestCase):
         status_tab_source = source[source.index("def _build_status_tab") : source.index("def _build_server_tab")]
 
         self.assertIn("webengine_restart_button = QPushButton(BANNER_PRIMARY_ACTION)", status_tab_source)
-        self.assertIn("restart_anki_with_cdp(cdp_status()[\"port\"], logger=logger)", status_tab_source)
+        self.assertIn("_restart_anki_for_deckhand_from_ui(widget, cdp_status()[\"port\"], logger=logger)", status_tab_source)
         self.assertIn("webengine_restart_button.setEnabled(not bool(cdp[\"open\"]))", status_tab_source)
 
     def test_qt_symbols_are_imported_in_direct_function_scope(self):
@@ -801,6 +867,7 @@ class AddonShellTests(unittest.TestCase):
         banner_body = source[source.index("def maybe_show_cdp_banner") : source.index("def _make_cdp_banner_widget")]
 
         self.assertIn("if settings.cdp_banner_dismissed():", banner_body)
+        self.assertIn("settings.set_cdp_banner_dismissed(False)", banner_body)
         self.assertIn('if status["open"]:', banner_body)
         self.assertNotIn("CONNECTED_TITLE", source)
         self.assertIn("settings.set_cdp_banner_dismissed(True)", source)
@@ -812,6 +879,16 @@ class AddonShellTests(unittest.TestCase):
                 management.dismiss_cdp_banner()
                 self.assertTrue(settings.cdp_banner_dismissed())
         management._banner_dismissed = False
+
+    def test_cdp_banner_stale_dismissal_is_cleared_when_restart_is_still_needed(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXTENSION_STATE_ROOT": temp_dir}):
+                settings.set_cdp_banner_dismissed(True)
+                management._banner_dismissed = False
+                status = {"host": "127.0.0.1", "port": 9222, "open": False, "url": "", "launchEnv": ""}
+                with mock.patch.object(management, "cdp_status", lambda: status):
+                    management.maybe_show_cdp_banner(object())
+                self.assertFalse(settings.cdp_banner_dismissed())
 
     def test_lens_inspector_is_removed_from_management(self):
         config = json.loads((ADDON / "config.json").read_text(encoding="utf-8"))
@@ -943,6 +1020,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn('"DECKHAND_MCP_REQUIRE_TOKEN": "1" if settings.require_mcp_token() else "0"', source)
         self.assertIn("settings.persistent_token()", source)
         self.assertIn("cwd=str(default_runtime_dir())", source)
+        self.assertIn('"--parent-pid", str(os.getpid())', source)
         self.assertIn("write_owner_file(_started_pid, binary)", source)
         self.assertIn("stop_stale_recorded_companion(logger=logger)", source)
 
@@ -1611,6 +1689,14 @@ class AddonShellTests(unittest.TestCase):
 
         self.assertIn("target=self._run_forever", source)
         self.assertIn("DECKHAND_SAFE_BRIDGE_RETRY_SECONDS", source)
+
+    def test_safe_bridge_restarts_companion_after_newer_addon_takeover(self):
+        source = (ADDON / "deckhand" / "bridge_transport.py").read_text(encoding="utf-8")
+
+        self.assertIn('if error == "companion_takeover_newer_addon":', source)
+        self.assertIn("def _restart_companion_after_takeover(self) -> None:", source)
+        self.assertIn("DECKHAND_COMPANION_TAKEOVER_RESTART_DELAY_SECONDS", source)
+        self.assertIn("companion.ensure_running(logger=self._logger, force=True)", source)
 
     def test_bridge_transport_idle_timeout_returns_no_message(self):
         left, right = socket.socketpair()

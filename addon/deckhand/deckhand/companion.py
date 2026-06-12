@@ -229,7 +229,7 @@ def start_companion(binary: Path, logger=None) -> subprocess.Popen:
     stdout = (log_dir / "companion.stdout.log").open("ab")
     stderr = (log_dir / "companion.stderr.log").open("ab")
     _log_handles.extend([stdout, stderr])
-    command = [str(binary), "serve", "--bind", companion_bind()]
+    command = [str(binary), "serve", "--bind", companion_bind(), "--parent-pid", str(os.getpid())]
     token = companion_token()
     env = {
         **os.environ,
