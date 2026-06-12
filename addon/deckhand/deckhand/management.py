@@ -942,7 +942,7 @@ def _clear_developer_panel() -> None:
 
 
 def _build_developer_panel(mw: Any, anki_tools: list[str], logger=None) -> Any:
-    from aqt.qt import QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QTabWidget, QVBoxLayout, QWidget
+    from aqt.qt import QDialog, QDialogButtonBox, QFormLayout, QLabel, QPushButton, QTabWidget, QVBoxLayout, QWidget
 
     dialog = QDialog(mw)
     dialog.setWindowTitle("Deckhand Developer Panel")
@@ -950,7 +950,6 @@ def _build_developer_panel(mw: Any, anki_tools: list[str], logger=None) -> Any:
     layout = QVBoxLayout(dialog)
 
     tabs = QTabWidget(dialog)
-    tabs.addTab(_build_tools_tab(tabs, anki_tools), "Tools")
     tabs.addTab(_build_connection_tab(tabs, anki_tools), "Connection")
     tabs.addTab(_build_webengine_tab(tabs, logger=logger), "WebEngine")
     tabs.addTab(_build_logs_tab(tabs, anki_tools), "Logs")
@@ -961,123 +960,6 @@ def _build_developer_panel(mw: Any, anki_tools: list[str], logger=None) -> Any:
     buttons.accepted.connect(dialog.accept)
     layout.addWidget(buttons)
     return dialog
-
-
-def _build_tools_tab(parent: Any, anki_tools: list[str]) -> Any:
-    from aqt.qt import (
-        QHBoxLayout,
-        QLabel,
-        QLineEdit,
-        QListWidget,
-        QListWidgetItem,
-        QPlainTextEdit,
-        QPushButton,
-        Qt,
-        QVBoxLayout,
-        QWidget,
-    )
-    from . import tool_visibility
-
-    widget = QWidget(parent)
-    layout = QVBoxLayout(widget)
-
-    templates = QHBoxLayout()
-    templates.addWidget(QLabel("Templates"))
-    all_button = QPushButton("All tools")
-    runtime_button = QPushButton("Runtime + WebEngine")
-    none_button = QPushButton("None")
-    save_button = QPushButton("Save visibility")
-    status = QLabel("")
-    for button in (all_button, runtime_button, none_button, save_button):
-        templates.addWidget(button)
-    templates.addWidget(status, 1)
-    layout.addLayout(templates)
-
-    search = QLineEdit()
-    search.setPlaceholderText("Search tools by name, namespace, or description")
-    layout.addWidget(search)
-
-    body = QHBoxLayout()
-    tool_list = QListWidget()
-    detail = QPlainTextEdit()
-    detail.setReadOnly(True)
-    body.addWidget(tool_list, 2)
-    body.addWidget(detail, 3)
-    layout.addLayout(body, 1)
-
-    all_tool_names = tool_visibility.public_tool_names()
-    models = tool_view_models(all_tool_names)
-    visible_by_name = {name: name in set(tool_visibility.visible_tool_names(all_tool_names)) for name in all_tool_names}
-    updating = {"active": False}
-
-    def render_detail(model: dict[str, Any]) -> None:
-        detail.setPlainText(_tool_detail_text(model))
-
-    def refill() -> None:
-        needle = search.text().lower().strip()
-        updating["active"] = True
-        tool_list.clear()
-        try:
-            for model in models:
-                haystack = " ".join(
-                    [
-                        str(model["name"]),
-                        str(model["namespace"]),
-                        str(model["description"]),
-                    ]
-                ).lower()
-                if needle and needle not in haystack:
-                    continue
-                item = QListWidgetItem(f"{model['name']}\n{model['description']}")
-                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(
-                    Qt.CheckState.Checked
-                    if visible_by_name.get(str(model["name"]), False)
-                    else Qt.CheckState.Unchecked
-                )
-                item.setData(256, model)
-                item.setData(257, str(model["name"]))
-                tool_list.addItem(item)
-        finally:
-            updating["active"] = False
-        if tool_list.count():
-            tool_list.setCurrentRow(0)
-            render_detail(tool_list.currentItem().data(256))
-        else:
-            detail.setPlainText("No matching tools.")
-
-    def selection_changed() -> None:
-        item = tool_list.currentItem()
-        if item is not None:
-            render_detail(item.data(256))
-
-    def item_changed(item: Any) -> None:
-        if updating["active"]:
-            return
-        visible_by_name[str(item.data(257))] = item.checkState() == Qt.CheckState.Checked
-        status.setText("Unsaved changes")
-
-    def apply_template(template: str) -> None:
-        selected = set(tool_visibility.template_tool_names(template, all_tool_names))
-        for name in all_tool_names:
-            visible_by_name[name] = name in selected
-        status.setText("Unsaved changes")
-        refill()
-
-    def save_visibility() -> None:
-        visible = [name for name in all_tool_names if visible_by_name.get(name, False)]
-        tool_visibility.save_visible_tool_names(visible)
-        status.setText("Saved. Reconnect the MCP client to refresh visible tools.")
-
-    search.textChanged.connect(lambda _text: refill())
-    tool_list.currentItemChanged.connect(lambda _current, _previous: selection_changed())
-    tool_list.itemChanged.connect(item_changed)
-    all_button.clicked.connect(lambda _checked=False: apply_template(tool_visibility.TEMPLATE_ALL))
-    runtime_button.clicked.connect(lambda _checked=False: apply_template(tool_visibility.TEMPLATE_RUNTIME_WEBENGINE))
-    none_button.clicked.connect(lambda _checked=False: apply_template(tool_visibility.TEMPLATE_NONE))
-    save_button.clicked.connect(lambda _checked=False: save_visibility())
-    refill()
-    return widget
 
 
 def _build_connection_tab(parent: Any, anki_tools: list[str]) -> Any:

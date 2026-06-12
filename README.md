@@ -58,8 +58,8 @@ Deckhand's answer: put the assistant *inside* the live Anki runtime, behind a gu
 Deckhand is built around a simple idea: *the assistant crews the ship; you captain it.*
 
 - Runs entirely on **loopback** — nothing leaves your machine.
-- The default MCP surface is **deliberately small**; the full tool inventory is opt-in from the developer panel.
-- Mutating and destructive tools carry **standard MCP annotations**, so well-behaved clients confirm before acting.
+- The public MCP surface is **deliberately small**: runtime info, backups, and code-mode Anki access.
+- Major Anki work goes through **`anki_run_python` inside Anki's runtime**, so agents use Anki APIs instead of direct database or media-folder edits.
 - Want a lock on the hatch? Flip on **"Require access token"** in the Server tab — the Claude Desktop extension carries the key automatically.
 - Updates **ask first**. Skills updates never touch anything you've hand-edited.
 

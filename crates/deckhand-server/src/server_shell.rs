@@ -6,10 +6,10 @@ use http_body_util::{BodyExt, Full};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha1::{Digest, Sha1};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -25,11 +25,7 @@ const ANKI_SDK_AQT_PATH_PLACEHOLDER: &str = "{anki_sdk_aqt_path}";
 const COMPANION_TOKEN_ENV: &str = "DECKHAND_COMPANION_TOKEN";
 const MCP_REQUIRE_TOKEN_ENV: &str = "DECKHAND_MCP_REQUIRE_TOKEN";
 const MCP_TOOL_TIMEOUT_ENV: &str = "DECKHAND_MCP_TOOL_TIMEOUT_SECONDS";
-const STATE_ROOT_ENV: &str = "DECKHAND_ANKI_EXTENSION_STATE_ROOT";
 const DEFAULT_MCP_TOOL_TIMEOUT_SECONDS: u64 = 120;
-const BACKUP_TOOL: &str = "anki_backup_create";
-const RUN_PYTHON_TOOL: &str = "anki_run_python";
-const RUNTIME_INFO_TOOL: &str = "anki_runtime_info";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AdapterStatus {
@@ -155,10 +151,7 @@ impl BridgeHub {
         }
         let registered = self.inner.registration.lock().await.clone();
         if let Some(registration) = registered {
-            let listed = anki_bridge_tools_from_registration_for_visibility_path(
-                &registration,
-                &tool_visibility_path(),
-            );
+            let listed = anki_bridge_tools_from_registration(&registration);
             let visible = listed.as_array().is_some_and(|tools| {
                 tools.iter().any(|entry| {
                     entry
@@ -230,17 +223,10 @@ fn is_anki_bridge_tool_name(tool: &str) -> bool {
 }
 
 fn anki_bridge_tools_from_registration(registration: &Value) -> Value {
-    anki_bridge_tools_from_registration_for_visibility_path(registration, &tool_visibility_path())
-}
-
-fn anki_bridge_tools_from_registration_for_visibility_path(
-    registration: &Value,
-    visibility_path: &Path,
-) -> Value {
-    let canonical_tools = mcp_tool_inventory_for_visibility_path(visibility_path)
+    let canonical_tools = mcp_tool_inventory()
         .into_iter()
         .map(|tool| tool.name)
-        .collect::<HashSet<_>>();
+        .collect::<std::collections::HashSet<_>>();
     let tools = registration
         .pointer("/params/tools")
         .or_else(|| registration.pointer("/params/capabilities/tools"))
@@ -270,25 +256,10 @@ fn mcp_tool_allowlist() -> Option<Vec<String>> {
     (!tools.is_empty()).then_some(tools)
 }
 
-fn mcp_tool_allowed(name: &str, visible: Option<&HashSet<String>>) -> bool {
-    let visibility_allowed = visible.is_none_or(|tools| tools.contains(name));
-    if !visibility_allowed {
-        return false;
-    }
+fn mcp_tool_allowed(name: &str) -> bool {
     mcp_tool_allowlist()
         .as_ref()
         .is_none_or(|allowed| allowed.iter().any(|allowed_name| allowed_name == name))
-}
-
-fn tool_visibility_path() -> PathBuf {
-    state_root().join("tool-visibility.json")
-}
-
-fn state_root() -> PathBuf {
-    if let Ok(configured) = env::var(STATE_ROOT_ENV) {
-        return PathBuf::from(configured);
-    }
-    default_state_root(env::var("HOME").ok().as_deref(), std::env::consts::OS)
 }
 
 fn default_state_root(home: Option<&str>, os: &str) -> PathBuf {
@@ -310,33 +281,6 @@ fn default_state_root(home: Option<&str>, os: &str) -> PathBuf {
             .join("deckhand")
             .join("state"),
     }
-}
-
-fn read_visible_tool_names(path: &Path) -> Option<HashSet<String>> {
-    let payload = std::fs::read_to_string(path).ok()?;
-    let value = serde_json::from_str::<Value>(&payload).ok()?;
-    let tools = value.get("visibleTools")?.as_array()?;
-    Some(normalize_visible_tool_names(
-        tools
-            .iter()
-            .filter_map(Value::as_str)
-            .map(ToString::to_string)
-            .collect(),
-    ))
-}
-
-fn normalize_visible_tool_names(mut tools: HashSet<String>) -> HashSet<String> {
-    let legacy_minimal = tools.contains(RUN_PYTHON_TOOL)
-        && tools.contains(RUNTIME_INFO_TOOL)
-        && tools.iter().all(|name| {
-            name == RUN_PYTHON_TOOL
-                || name == RUNTIME_INFO_TOOL
-                || name.starts_with("anki_webengine_")
-        });
-    if legacy_minimal {
-        tools.insert(BACKUP_TOOL.to_string());
-    }
-    tools
 }
 
 pub fn status_snapshot() -> ServerStatus {
@@ -398,10 +342,6 @@ async fn status_payload() -> Value {
 }
 
 pub fn mcp_tool_inventory() -> Vec<McpTool> {
-    mcp_tool_inventory_for_visibility_path(&tool_visibility_path())
-}
-
-pub(crate) fn mcp_tool_inventory_for_visibility_path(visibility_path: &Path) -> Vec<McpTool> {
     static INVENTORY: OnceLock<Vec<McpTool>> = OnceLock::new();
     let inventory = INVENTORY
         .get_or_init(|| {
@@ -415,10 +355,9 @@ pub(crate) fn mcp_tool_inventory_for_visibility_path(visibility_path: &Path) -> 
                 .collect()
         })
         .clone();
-    let visible = read_visible_tool_names(visibility_path);
     inventory
         .into_iter()
-        .filter(|tool| mcp_tool_allowed(&tool.name, visible.as_ref()))
+        .filter(|tool| mcp_tool_allowed(&tool.name))
         .collect()
 }
 
@@ -925,17 +864,6 @@ async fn write_response(
 mod tests {
     use super::*;
 
-    fn missing_visibility_path() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "deckhand-missing-visibility-{}-{}.json",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ))
-    }
-
     #[test]
     fn status_lists_required_endpoints_and_adapters() {
         let status = status_snapshot();
@@ -954,34 +882,24 @@ mod tests {
 
     #[test]
     fn mcp_inventory_advertises_expected_namespaces() {
-        let inventory = mcp_tool_inventory_for_visibility_path(&missing_visibility_path());
-        assert!(!inventory.is_empty());
+        let inventory = mcp_tool_inventory();
+        let names = inventory
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(
+            names,
+            ["anki_backup_create", "anki_run_python", "anki_runtime_info"]
+                .into_iter()
+                .collect()
+        );
         assert!(inventory
             .iter()
             .all(|tool| { tool.status == "implemented" && tool.name.starts_with("anki_") }));
         assert!(inventory
             .iter()
-            .any(|tool| tool.name == "anki_app_get_state"));
-        assert!(inventory
-            .iter()
             .all(|tool| tool.name != "anki_context_get_current"));
-        assert!(!inventory
-            .iter()
-            .any(|tool| tool.name == "anki_review_answer_current"));
-        assert!(!inventory
-            .iter()
-            .any(|tool| tool.name == "anki_media_add_bytes"));
-        assert!(inventory.iter().any(|tool| tool.name == "anki_note_search"));
-        assert!(inventory.iter().any(|tool| tool.name == "anki_run_python"));
-        assert!(!inventory
-            .iter()
-            .any(|tool| tool.name.starts_with("anki_webengine_")));
-        assert!(inventory
-            .iter()
-            .any(|tool| tool.name == "anki_export_notes"));
-        assert!(inventory
-            .iter()
-            .any(|tool| tool.name == "anki_backup_create"));
         assert!(inventory.iter().all(|tool| {
             !tool.name.starts_with("anki_bridge_")
                 && !tool.name.starts_with("anki_smoke_")
@@ -1006,98 +924,19 @@ mod tests {
     }
 
     #[test]
-    fn mcp_inventory_respects_saved_tool_visibility() {
-        let path = std::env::temp_dir().join(format!(
-            "deckhand-tool-visibility-{}-{}.json",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::write(
-            &path,
-            r#"{"visibleTools":["anki_backup_create","anki_run_python","anki_runtime_info","anki_webengine_status","anki_unknown"]}"#,
-        )
-        .unwrap();
-
-        let inventory = mcp_tool_inventory_for_visibility_path(&path);
-        let names = inventory
-            .iter()
-            .map(|tool| tool.name.as_str())
-            .collect::<std::collections::BTreeSet<_>>();
-
-        assert_eq!(
-            names,
-            ["anki_backup_create", "anki_run_python", "anki_runtime_info"]
-                .into_iter()
-                .collect()
-        );
-        let _ = std::fs::remove_file(path);
-    }
-
-    #[test]
-    fn mcp_inventory_upgrades_legacy_runtime_visibility() {
-        let path = std::env::temp_dir().join(format!(
-            "deckhand-legacy-tool-visibility-{}-{}.json",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::write(
-            &path,
-            r#"{"visibleTools":["anki_run_python","anki_runtime_info"]}"#,
-        )
-        .unwrap();
-
-        let inventory = mcp_tool_inventory_for_visibility_path(&path);
-        let names = inventory
-            .iter()
-            .map(|tool| tool.name.as_str())
-            .collect::<std::collections::BTreeSet<_>>();
-
-        assert_eq!(
-            names,
-            ["anki_backup_create", "anki_run_python", "anki_runtime_info"]
-                .into_iter()
-                .collect()
-        );
-        let _ = std::fs::remove_file(path);
-    }
-
-    #[test]
-    fn bridge_registration_respects_saved_tool_visibility() {
-        let path = std::env::temp_dir().join(format!(
-            "deckhand-bridge-tool-visibility-{}-{}.json",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::write(
-            &path,
-            r#"{"visibleTools":["anki_backup_create","anki_run_python","anki_runtime_info","anki_webengine_status"]}"#,
-        )
-        .unwrap();
-
-        let tools = anki_bridge_tools_from_registration_for_visibility_path(
-            &json!({
-                "params": {
-                    "tools": [
-                        { "name": "anki_app_get_state" },
-                        { "name": "anki_backup_create" },
-                        { "name": "anki_run_python" },
-                        { "name": "anki_runtime_info" },
-                        { "name": "anki_webengine_status" },
-                        { "name": "other.exec.run" }
-                    ]
-                }
-            }),
-            &path,
-        );
+    fn bridge_registration_uses_fixed_public_tool_set() {
+        let tools = anki_bridge_tools_from_registration(&json!({
+            "params": {
+                "tools": [
+                    { "name": "anki_app_get_state" },
+                    { "name": "anki_backup_create" },
+                    { "name": "anki_run_python" },
+                    { "name": "anki_runtime_info" },
+                    { "name": "anki_webengine_status" },
+                    { "name": "other.exec.run" }
+                ]
+            }
+        }));
         let names = tools
             .as_array()
             .unwrap()
@@ -1111,7 +950,6 @@ mod tests {
                 .into_iter()
                 .collect()
         );
-        let _ = std::fs::remove_file(path);
     }
 
     #[test]
@@ -1304,22 +1142,6 @@ mod tests {
 
     #[tokio::test]
     async fn api_mcp_tools_prefers_live_anki_bridge_registry() {
-        let state_root = std::env::temp_dir().join(format!(
-            "deckhand-live-bridge-visibility-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&state_root).unwrap();
-        std::fs::write(
-            state_root.join("tool-visibility.json"),
-            r#"{"visibleTools":["anki_run_python","anki_runtime_info","anki_webengine_status"]}"#,
-        )
-        .unwrap();
-        std::env::set_var(STATE_ROOT_ENV, &state_root);
-
         let hub = BridgeHub::default();
         let (_requests, session) = BridgeSession::new();
         hub.register_session_with_registration(
@@ -1356,9 +1178,6 @@ mod tests {
         assert_eq!(mcp_payload["tools"][0]["name"], "anki_backup_create");
         assert_eq!(mcp_payload["tools"][1]["name"], "anki_run_python");
         assert_eq!(mcp_payload["tools"][2]["name"], "anki_runtime_info");
-
-        std::env::remove_var(STATE_ROOT_ENV);
-        let _ = std::fs::remove_dir_all(state_root);
     }
 
     #[test]

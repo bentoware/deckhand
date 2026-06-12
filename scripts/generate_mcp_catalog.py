@@ -11,7 +11,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 ADDON_SRC = ROOT / "addon" / "deckhand"
 OUTPUT = ROOT / "crates" / "deckhand-server" / "src" / "generated" / "mcp_tool_inventory.json"
-INTERNAL_ANKI_PREFIXES = ("anki_bridge_", "anki_smoke_")
+PUBLIC_MCP_TOOLS = frozenset({"anki_backup_create", "anki_run_python", "anki_runtime_info"})
 
 
 def _title(name: str) -> str:
@@ -44,12 +44,10 @@ def _entry_payload(entry: Any) -> dict[str, Any]:
 
 
 def _is_public_mcp_tool(entry: Any) -> bool:
-    name = entry.name
     return (
         entry.status == "implemented"
         and "safe_bridge" in entry.paths
-        and name.startswith("anki_")
-        and not name.startswith(INTERNAL_ANKI_PREFIXES)
+        and entry.name in PUBLIC_MCP_TOOLS
     )
 
 

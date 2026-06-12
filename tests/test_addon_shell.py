@@ -46,28 +46,14 @@ from deckhand.version import ADDON_VERSION
 
 
 class AddonShellTests(unittest.TestCase):
-    def setUp(self):
-        self._tool_visibility_tmp = tempfile.TemporaryDirectory()
-        self._tool_visibility_patch = mock.patch.object(
-            tool_visibility,
-            "VISIBILITY_PATH",
-            Path(self._tool_visibility_tmp.name) / "tool-visibility.json",
-        )
-        self._tool_visibility_patch.start()
-
-    def tearDown(self):
-        self._tool_visibility_patch.stop()
-        self._tool_visibility_tmp.cleanup()
-
     def test_capability_payload_marks_internal_bridge_path(self):
         payload = capability_payload()
         self.assertEqual(payload["paths"], ["safe_bridge"])
-        self.assertIn("anki_run_python", {tool["name"] for tool in payload["tools"]})
-        self.assertIn("catalog", payload)
         self.assertEqual(
-            len(payload["tools"]),
-            len(payload["catalog"]["commands"]),
+            {tool["name"] for tool in payload["tools"]},
+            {"anki_backup_create", "anki_run_python", "anki_runtime_info"},
         )
+        self.assertIn("catalog", payload)
         self.assertTrue(all(tool["path"] == "safe_bridge" for tool in payload["tools"]))
 
     def test_anki_bridge_capability_payload_advertises_internal_anki_tools(self):
@@ -75,54 +61,20 @@ class AddonShellTests(unittest.TestCase):
         names = {tool["name"] for tool in payload["tools"]}
 
         self.assertEqual(payload["paths"], ["safe_bridge"])
-        self.assertIn("anki_app_get_state", names)
-        self.assertNotIn("anki_context_get_current", names)
-        self.assertIn("anki_note_search", names)
-        self.assertIn("anki_run_python", names)
-        self.assertNotIn("anki_review_answer_current", names)
-        self.assertNotIn("anki_bridge_registry", names)
-        self.assertNotIn("anki_bridge_call", names)
-        self.assertNotIn("anki_bridge_server_call", names)
-        self.assertNotIn("anki_smoke_safe_bridge", names)
-        self.assertNotIn("codex.realtime.start_call", names)
-        self.assertNotIn("system.exec.run", names)
-        self.assertTrue(all(".smoke." not in name for name in names))
-        self.assertNotIn("anki_dev_set_addon_config", names)
-        self.assertNotIn("anki_dev_backup_collection", names)
-        self.assertTrue(all(name.startswith("anki_") for name in names))
-
-    def test_tool_visibility_defaults_to_all_tools(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "tool-visibility.json"
-            with mock.patch.object(tool_visibility, "VISIBILITY_PATH", path):
-                visible = tool_visibility.visible_tool_names(["anki_deck_list", "anki_run_python"])
-
-        self.assertEqual(visible, ["anki_deck_list", "anki_run_python"])
-
-    def test_tool_visibility_template_filters_capability_payload(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "tool-visibility.json"
-            with mock.patch.object(tool_visibility, "VISIBILITY_PATH", path):
-                tool_visibility.apply_template(tool_visibility.TEMPLATE_RUNTIME_WEBENGINE)
-                payload = anki_bridge_capability_payload()
-
-        names = {tool["name"] for tool in payload["tools"]}
-        self.assertIn("anki_backup_create", names)
-        self.assertIn("anki_run_python", names)
-        self.assertIn("anki_runtime_info", names)
-        self.assertNotIn("anki_note_search", names)
-        self.assertNotIn("anki_card_preview", names)
-        self.assertNotIn("anki_deck_list", names)
         self.assertEqual(names, {"anki_backup_create", "anki_run_python", "anki_runtime_info"})
 
-    def test_tool_visibility_upgrades_legacy_runtime_template(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "tool-visibility.json"
-            path.write_text('{"visibleTools":["anki_run_python","anki_runtime_info"]}', encoding="utf-8")
-            with mock.patch.object(tool_visibility, "VISIBILITY_PATH", path):
-                visible = tool_visibility.visible_tool_names(
-                    ["anki_backup_create", "anki_deck_list", "anki_run_python", "anki_runtime_info"]
-                )
+    def test_tool_visibility_is_fixed_to_public_runtime_surface(self):
+        visible = tool_visibility.visible_tool_names(
+            ["anki_backup_create", "anki_deck_list", "anki_run_python", "anki_runtime_info"]
+        )
+
+        self.assertEqual(visible, ["anki_backup_create", "anki_run_python", "anki_runtime_info"])
+
+    def test_tool_visibility_templates_do_not_expand_public_surface(self):
+        visible = tool_visibility.template_tool_names(
+            "any-template",
+            ["anki_backup_create", "anki_deck_list", "anki_run_python", "anki_runtime_info"],
+        )
 
         self.assertEqual(visible, ["anki_backup_create", "anki_run_python", "anki_runtime_info"])
 
@@ -524,15 +476,14 @@ class AddonShellTests(unittest.TestCase):
 
         self.assertIn("def show_developer_panel", source)
         self.assertIn('dialog.setWindowTitle("Deckhand Developer Panel")', source)
-        self.assertIn('tabs.addTab(_build_tools_tab(tabs, anki_tools), "Tools")', source)
         self.assertIn('tabs.addTab(_build_connection_tab(tabs, anki_tools), "Connection")', source)
         self.assertIn('tabs.addTab(_build_webengine_tab(tabs, logger=logger), "WebEngine")', source)
         self.assertIn('tabs.addTab(_build_logs_tab(tabs, anki_tools), "Logs")', source)
-        self.assertIn('search.setPlaceholderText("Search tools by name, namespace, or description")', source)
-        self.assertIn('QPushButton("All tools")', source)
-        self.assertIn('QPushButton("Runtime + WebEngine")', source)
-        self.assertIn('QPushButton("Save visibility")', source)
-        self.assertIn("tool_visibility.save_visible_tool_names(visible)", source)
+        self.assertNotIn('tabs.addTab(_build_tools_tab(tabs, anki_tools), "Tools")', source)
+        self.assertNotIn('QPushButton("All tools")', source)
+        self.assertNotIn('QPushButton("Runtime + WebEngine")', source)
+        self.assertNotIn('QPushButton("Save visibility")', source)
+        self.assertNotIn("tool_visibility.save_visible_tool_names", source)
         self.assertIn("QPlainTextEdit", source)
 
     def test_tool_view_models_join_live_tools_with_catalog_metadata(self):

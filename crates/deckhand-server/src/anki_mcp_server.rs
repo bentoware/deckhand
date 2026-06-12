@@ -146,7 +146,11 @@ async fn call_mcp_tool(
     tool: String,
     arguments: Value,
 ) -> anyhow::Result<CallToolResult> {
-    if !is_anki_mcp_tool(&tool) {
+    if !is_anki_mcp_tool(&tool)
+        || !mcp_tool_inventory()
+            .iter()
+            .any(|entry| entry.name == tool)
+    {
         anyhow::bail!("unsupported Deckhand MCP tool: {tool}");
     }
 
@@ -228,47 +232,26 @@ fn tool_success_summary(tool: &str, payload: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server_shell::mcp_tool_inventory_for_visibility_path;
-    use std::path::PathBuf;
-
-    fn missing_visibility_path() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "deckhand-rmcp-missing-visibility-{}-{}.json",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ))
-    }
 
     #[test]
     fn mcp_projection_uses_standard_annotations_without_approval_inputs() {
-        let tools = mcp_tool_inventory_for_visibility_path(&missing_visibility_path());
-        let create = tools
-            .iter()
-            .find(|tool| tool.name == "anki_note_create")
-            .unwrap();
+        let tools = mcp_tool_inventory();
         let execute = tools
             .iter()
             .find(|tool| tool.name == "anki_run_python")
             .unwrap();
-        let deck_list = tools
+        let runtime = tools
             .iter()
-            .find(|tool| tool.name == "anki_deck_list")
+            .find(|tool| tool.name == "anki_runtime_info")
             .unwrap();
 
-        assert_eq!(create.annotations["readOnlyHint"], false);
-        assert_eq!(create.annotations["destructiveHint"], false);
         assert_eq!(execute.annotations["destructiveHint"], true);
-        assert_eq!(deck_list.annotations["readOnlyHint"], true);
-        assert_eq!(deck_list.annotations["idempotentHint"], true);
-        assert!(create.input_schema["properties"].get("approved").is_none());
+        assert_eq!(runtime.annotations["readOnlyHint"], true);
+        assert_eq!(runtime.annotations["idempotentHint"], false);
         assert!(execute.input_schema["properties"].get("approved").is_none());
         assert!(execute.input_schema["properties"]
             .get("resultFilePath")
             .is_some());
-        assert!(is_anki_mcp_tool("anki_app_get_state"));
         assert!(is_anki_mcp_tool("anki_run_python"));
         assert!(!is_anki_mcp_tool("other.exec.run"));
         assert!(!is_anki_mcp_tool("anki.note.search"));
@@ -276,33 +259,35 @@ mod tests {
 
     #[test]
     fn rmcp_tool_models_advertise_canonical_underscore_names() {
-        let tools = mcp_tool_inventory_for_visibility_path(&missing_visibility_path());
+        let tools = mcp_tool_inventory();
         let models = tools.iter().map(mcp_tool_model).collect::<Vec<_>>();
         let names = models
             .iter()
             .map(|tool| tool.name.as_ref())
             .collect::<std::collections::BTreeSet<_>>();
 
-        assert!(models.len() > 20);
-        assert!(names.contains("anki_app_get_state"));
+        assert_eq!(
+            names,
+            ["anki_backup_create", "anki_run_python", "anki_runtime_info"]
+                .into_iter()
+                .collect()
+        );
         assert!(!names.contains("anki_context_get_current"));
-        assert!(names.contains("anki_note_search"));
-        assert!(names.contains("anki_run_python"));
         assert!(names.iter().all(|name| name
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')));
 
-        let search = models
+        let runtime = models
             .iter()
-            .find(|tool| tool.name.as_ref() == "anki_note_search")
+            .find(|tool| tool.name.as_ref() == "anki_runtime_info")
             .unwrap();
-        assert_eq!(search.title.as_deref(), Some("Search"));
+        assert_eq!(runtime.title.as_deref(), Some("Info"));
         assert_eq!(
-            search.annotations.as_ref().unwrap().read_only_hint,
+            runtime.annotations.as_ref().unwrap().read_only_hint,
             Some(true)
         );
         assert_eq!(
-            search.annotations.as_ref().unwrap().open_world_hint,
+            runtime.annotations.as_ref().unwrap().open_world_hint,
             Some(false)
         );
     }
@@ -350,7 +335,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rmcp_mutation_routes_directly_to_bridge_without_approval_preview() {
+    async fn rmcp_call_rejects_tools_outside_public_inventory() {
         let error = call_mcp_tool(
             BridgeHub::default(),
             "anki_note_create".to_string(),
@@ -360,7 +345,7 @@ mod tests {
         .unwrap_err()
         .to_string();
 
-        assert!(!error.is_empty());
+        assert!(error.contains("unsupported Deckhand MCP tool"));
         assert!(!error.contains("requiresApproval"));
         assert!(!error.contains("elicitation"));
     }
@@ -368,12 +353,12 @@ mod tests {
     #[test]
     fn rmcp_call_unwraps_bridge_success_envelope() {
         let result = call_tool_result(
-            "anki_note_search",
+            "anki_run_python",
             json!({
                 "id": "bridge-call-1",
                 "method": "tool.result",
                 "params": {
-                    "tool": "anki_note_search",
+                    "tool": "anki_run_python",
                     "ok": true,
                     "result": { "query": "deckhand", "noteIds": [1, 2], "count": 2 },
                     "error": null,
@@ -394,22 +379,22 @@ mod tests {
         assert!(structured.get("durationMs").is_none());
         assert_eq!(
             serde_json::to_value(&result.content).unwrap()[0]["text"],
-            "anki_note_search: 2 result(s)\n\n```json\n{\n  \"count\": 2,\n  \"noteIds\": [\n    1,\n    2\n  ],\n  \"query\": \"deckhand\"\n}\n```"
+            "anki_run_python: 2 result(s)\n\n```json\n{\n  \"count\": 2,\n  \"noteIds\": [\n    1,\n    2\n  ],\n  \"query\": \"deckhand\"\n}\n```"
         );
     }
 
     #[test]
     fn rmcp_call_converts_bridge_failure_to_tool_error() {
         let result = call_tool_result(
-            "anki_note_get",
+            "anki_run_python",
             json!({
                 "id": "bridge-call-2",
                 "method": "tool.result",
                 "params": {
-                    "tool": "anki_note_get",
+                    "tool": "anki_run_python",
                     "ok": false,
                     "result": null,
-                    "error": "execution_failed: missing note",
+                    "error": "execution_failed: snippet failed",
                     "durationMs": 3
                 }
             }),
@@ -418,20 +403,20 @@ mod tests {
         let structured = result.structured_content.unwrap();
 
         assert_eq!(result.is_error, Some(true));
-        assert_eq!(structured["tool"], "anki_note_get");
-        assert_eq!(structured["error"], "execution_failed: missing note");
+        assert_eq!(structured["tool"], "anki_run_python");
+        assert_eq!(structured["error"], "execution_failed: snippet failed");
         assert!(structured.get("durationMs").is_none());
         assert_eq!(
             serde_json::to_value(&result.content).unwrap()[0]["text"],
-            "anki_note_get: execution_failed: missing note\n\n```json\n{\n  \"error\": \"execution_failed: missing note\",\n  \"tool\": \"anki_note_get\"\n}\n```"
+            "anki_run_python: execution_failed: snippet failed\n\n```json\n{\n  \"error\": \"execution_failed: snippet failed\",\n  \"tool\": \"anki_run_python\"\n}\n```"
         );
     }
 
     #[test]
     fn rmcp_call_rejects_malformed_bridge_result() {
         let error = call_tool_result(
-            "anki_note_get",
-            json!({"params": {"tool": "anki_note_get"}}),
+            "anki_run_python",
+            json!({"params": {"tool": "anki_run_python"}}),
         )
         .unwrap_err()
         .to_string();

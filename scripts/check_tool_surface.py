@@ -15,6 +15,7 @@ ADDON_MODULE = ADDON_SRC / "deckhand"
 ADDON_PY = ADDON_MODULE / "addon.py"
 INVENTORY = ROOT / "crates" / "deckhand-server" / "src" / "generated" / "mcp_tool_inventory.json"
 MCP_TOOL_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+PUBLIC_MCP_TOOLS = frozenset({"anki_backup_create", "anki_run_python", "anki_runtime_info"})
 
 LEGACY_TOOL_NAMES = {
     "anki_bridge_registry",
@@ -145,9 +146,7 @@ def main() -> int:
         for entry in catalog
         if entry.status == "implemented"
         and "safe_bridge" in entry.paths
-        and entry.name.startswith("anki_")
-        and not entry.name.startswith("anki_bridge_")
-        and not entry.name.startswith("anki_smoke_")
+        and entry.name in PUBLIC_MCP_TOOLS
     }
     registered_names = _registered_tool_names(ADDON_PY)
     inventory_names = _inventory_tool_names(INVENTORY)

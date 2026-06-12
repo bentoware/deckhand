@@ -120,11 +120,7 @@ class DevAddonReloadTests(unittest.TestCase):
 
         self.assertEqual(generated, generate_mcp_catalog.build_payload())
         names = [tool["name"] for tool in generated["tools"]]
-        self.assertIn("anki_app_get_state", names)
-        self.assertNotIn("anki_context_get_current", names)
-        self.assertIn("anki_note_search", names)
-        self.assertIn("anki_run_python", names)
-        self.assertNotIn("anki_review_answer_current", names)
+        self.assertEqual(names, ["anki_backup_create", "anki_run_python", "anki_runtime_info"])
         self.assertTrue(all(name.startswith("anki_") for name in names))
         self.assertTrue(all(str(Path.home()) not in tool["description"] for tool in generated["tools"]))
 

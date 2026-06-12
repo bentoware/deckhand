@@ -4,8 +4,8 @@ This release makes Deckhand's safety backup tool easier for MCP clients to see a
 
 ## Changed
 
-- **Backup tool is visible in the lean MCP surface** — `anki_backup_create` now appears alongside `anki_run_python` and `anki_runtime_info` when Deckhand is using the minimal/runtime tool set.
-- **Existing minimal settings are upgraded in place** — clients with the previous two-tool visibility setting now see `anki_backup_create` without manually re-saving tool visibility.
+- **Backup tool is part of the fixed MCP surface** — `anki_backup_create` appears alongside `anki_run_python` and `anki_runtime_info`.
+- **Deckhand keeps the public surface small** — nontrivial Anki work should go through `anki_run_python` inside Anki's runtime.
 - **LLM-facing guidance calls out backups** — the MCP server instructions and backup tool description now recommend creating a backup before bulk edits, deletes, imports, template changes, scheduling changes, or other major mutations.
 
 ## Install

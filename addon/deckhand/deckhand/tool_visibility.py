@@ -1,82 +1,22 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Iterable
 
-from .command_catalog import command_catalog
-from .state_paths import work_root
-
-VISIBILITY_PATH = work_root() / "tool-visibility.json"
-MINIMAL_TEMPLATE_TOOLS = frozenset({"anki_backup_create", "anki_run_python", "anki_runtime_info"})
-LEGACY_MINIMAL_TEMPLATE_TOOLS = frozenset({"anki_run_python", "anki_runtime_info"})
-TEMPLATE_ALL = "all"
-TEMPLATE_RUNTIME_WEBENGINE = "runtime_webengine"
-TEMPLATE_NONE = "none"
+PUBLIC_MCP_TOOLS = frozenset({"anki_backup_create", "anki_run_python", "anki_runtime_info"})
 
 
 def public_tool_names() -> list[str]:
-    return [
-        entry.name
-        for entry in command_catalog()
-        if entry.status == "implemented"
-        and entry.name.startswith("anki_")
-        and "safe_bridge" in entry.paths
-        and not entry.name.startswith("anki_bridge_")
-        and not entry.name.startswith("anki_smoke_")
-    ]
+    return sorted(PUBLIC_MCP_TOOLS)
 
 
 def visible_tool_names(all_names: Iterable[str] | None = None) -> list[str]:
     names = sorted(set(all_names or public_tool_names()))
-    settings = _read_settings()
-    configured = settings.get("visibleTools")
-    if not isinstance(configured, list):
-        return names
-    visible = _normalize_visible_tools({str(name) for name in configured})
-    return [name for name in names if name in visible]
+    return [name for name in names if name in PUBLIC_MCP_TOOLS]
 
 
 def is_tool_visible(name: str) -> bool:
-    return name in set(visible_tool_names())
-
-
-def save_visible_tool_names(names: Iterable[str]) -> dict[str, object]:
-    public = set(public_tool_names())
-    visible = sorted({str(name) for name in names if str(name) in public})
-    payload = {"visibleTools": visible}
-    VISIBILITY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    VISIBILITY_PATH.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return payload
+    return name in PUBLIC_MCP_TOOLS
 
 
 def template_tool_names(template: str, all_names: Iterable[str] | None = None) -> list[str]:
-    names = sorted(set(all_names or public_tool_names()))
-    if template == TEMPLATE_RUNTIME_WEBENGINE:
-        return [
-            name
-            for name in names
-            if name in MINIMAL_TEMPLATE_TOOLS or name.startswith("anki_webengine_")
-        ]
-    if template == TEMPLATE_NONE:
-        return []
-    return names
-
-
-def apply_template(template: str) -> dict[str, object]:
-    return save_visible_tool_names(template_tool_names(template))
-
-
-def _read_settings() -> dict[str, object]:
-    try:
-        payload = json.loads(Path(VISIBILITY_PATH).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def _normalize_visible_tools(visible: set[str]) -> set[str]:
-    non_webengine = {name for name in visible if not name.startswith("anki_webengine_")}
-    if non_webengine == LEGACY_MINIMAL_TEMPLATE_TOOLS:
-        return visible | MINIMAL_TEMPLATE_TOOLS
-    return visible
+    return visible_tool_names(all_names)
