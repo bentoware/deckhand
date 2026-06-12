@@ -8,3 +8,4 @@ dist/
 addon/deckhand/bin/
 .deckhand-dev-processes.json
 *.log
+.local/
