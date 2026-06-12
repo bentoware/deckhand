@@ -921,7 +921,8 @@ class AddonShellTests(unittest.TestCase):
         self.assertNotIn("enable_lens_inspector", config)
         self.assertFalse((ADDON / "deckhand" / "anki_lens").exists())
         self.assertNotIn('QCheckBox("Enable Lens Inspector")', management_body)
-        self.assertIn('dialog.setWindowTitle("Deckhand")', management_body)
+        self.assertIn('dialog.setWindowTitle(f"Deckhand {ADDON_VERSION}")', management_body)
+        self.assertIn('heading = QLabel(f"Deckhand {ADDON_VERSION}")', management_body)
         self.assertIn('QPushButton("Restart helper")', management_body)
         self.assertIn('_section_title("Capabilities")', management_body)
         self.assertIn('QLineEdit(mcp_url)', management_body)
@@ -1289,10 +1290,14 @@ class AddonShellTests(unittest.TestCase):
     def test_addon_version_is_single_sourced(self):
         manifest = json.loads((ADDON / "manifest.json").read_text(encoding="utf-8"))
         addon_source = (ADDON / "deckhand" / "addon.py").read_text(encoding="utf-8")
+        package_source = (ADDON / "deckhand" / "__init__.py").read_text(encoding="utf-8")
 
         self.assertEqual(manifest["human_version"], ADDON_VERSION)
         self.assertIn('"addonVersion": ADDON_VERSION,', addon_source)
         self.assertNotIn('"addonVersion": "0.', addon_source)
+        self.assertIn("from .version import ADDON_VERSION", package_source)
+        self.assertIn("__version__ = ADDON_VERSION", package_source)
+        self.assertNotIn('__version__ = "0.', package_source)
 
     def test_companion_server_crate_version_matches_addon(self):
         # The add-on compares the /status version against ADDON_VERSION to

@@ -229,7 +229,7 @@ def _build_management_dialog(mw: Any, anki_tools: list[str], logger=None, initia
     )
 
     dialog = QDialog(mw)
-    dialog.setWindowTitle("Deckhand")
+    dialog.setWindowTitle(f"Deckhand {ADDON_VERSION}")
     dialog.resize(680, 540)
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(24, 20, 24, 18)
@@ -240,7 +240,7 @@ def _build_management_dialog(mw: Any, anki_tools: list[str], logger=None, initia
     bridge = status["ankiBridge"]
     connected = runtime.get("state") == "running" and bridge.get("state") == "connected"
 
-    heading = QLabel("Deckhand")
+    heading = QLabel(f"Deckhand {ADDON_VERSION}")
     heading.setStyleSheet("font-size: 24px; font-weight: 700;")
     layout.addWidget(heading)
 
