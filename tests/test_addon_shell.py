@@ -324,6 +324,30 @@ class AddonShellTests(unittest.TestCase):
         self.assertEqual(path.name, companion.SERVER_BINARY)
         self.assertIn(companion.platform_tag(), path.as_posix())
 
+    def test_companion_prepares_versioned_runtime_server_binary(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "source" / companion.SERVER_BINARY
+            source.parent.mkdir()
+            source.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXTENSION_STATE_ROOT": str(Path(temp_dir) / "state")}):
+                prepared = companion.prepare_runtime_server_binary(source)
+                prepared_text = prepared.read_text(encoding="utf-8")
+
+            self.assertEqual(prepared.name, companion.SERVER_BINARY)
+            self.assertIn(ADDON_VERSION, prepared.parts)
+            self.assertIn(companion.platform_tag(), prepared.parts)
+            self.assertNotEqual(prepared, source)
+            self.assertEqual(prepared_text, "#!/bin/sh\nexit 0\n")
+
+    def test_companion_binary_override_skips_runtime_copy(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            configured = Path(temp_dir) / companion.SERVER_BINARY
+            configured.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            with mock.patch.dict(os.environ, {"DECKHAND_COMPANION_BINARY": str(configured)}):
+                prepared = companion.prepare_runtime_server_binary()
+
+        self.assertEqual(prepared, configured)
+
     def test_companion_ensure_running_reuses_healthy_server(self):
         original_health_status = companion.health_status
         original_started_pid = companion._started_pid
@@ -364,9 +388,11 @@ class AddonShellTests(unittest.TestCase):
         calls = []
         original_health_status = companion.health_status
         original_bundled_server_path = companion.bundled_server_path
+        original_prepare_runtime_server_binary = companion.prepare_runtime_server_binary
         original_start_companion = companion.start_companion
         with tempfile.TemporaryDirectory() as temp_dir:
             binary = Path(temp_dir) / companion.SERVER_BINARY
+            runtime_binary = Path(temp_dir) / "runtime" / companion.SERVER_BINARY
             binary.write_text("#!/bin/sh\n", encoding="utf-8")
             checks = iter(
                 [
@@ -376,15 +402,17 @@ class AddonShellTests(unittest.TestCase):
             )
             companion.health_status = lambda: next(checks, {"healthy": True, "version": "0.1.0"})
             companion.bundled_server_path = lambda: binary
+            companion.prepare_runtime_server_binary = lambda source=None: runtime_binary
             companion.start_companion = lambda path, logger=None: calls.append(path) or FakeProcess()
             try:
                 status = companion.ensure_running()
             finally:
                 companion.health_status = original_health_status
                 companion.bundled_server_path = original_bundled_server_path
+                companion.prepare_runtime_server_binary = original_prepare_runtime_server_binary
                 companion.start_companion = original_start_companion
 
-        self.assertEqual(calls, [binary])
+        self.assertEqual(calls, [runtime_binary])
         self.assertEqual(status["state"], "running")
         self.assertTrue(status["ownedByAnki"])
         self.assertEqual(status["pid"], 9876)
@@ -676,6 +704,7 @@ class AddonShellTests(unittest.TestCase):
 
         self.assertIn('"DECKHAND_MCP_REQUIRE_TOKEN": "1" if settings.require_mcp_token() else "0"', source)
         self.assertIn("settings.persistent_token()", source)
+        self.assertIn("cwd=str(default_runtime_dir())", source)
 
     def test_connect_recipes_cover_target_clients(self):
         url = "http://127.0.0.1:28765/mcp"

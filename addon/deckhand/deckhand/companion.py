@@ -4,6 +4,7 @@ import json
 import os
 import platform
 import secrets
+import shutil
 import signal
 import subprocess
 import time
@@ -14,6 +15,7 @@ from urllib.request import urlopen
 
 from . import settings
 from .state_paths import work_root
+from .version import ADDON_VERSION
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -76,6 +78,38 @@ def bundled_server_path() -> Path:
     return package_root / "bin" / platform_tag() / SERVER_BINARY
 
 
+def companion_server_path() -> Path:
+    configured = os.environ.get("DECKHAND_COMPANION_BINARY")
+    if configured:
+        return Path(configured).expanduser()
+    return runtime_server_path()
+
+
+def runtime_server_path() -> Path:
+    return default_runtime_dir() / "bin" / ADDON_VERSION / platform_tag() / SERVER_BINARY
+
+
+def prepare_runtime_server_binary(source: Path | None = None) -> Path:
+    if os.environ.get("DECKHAND_COMPANION_BINARY"):
+        return bundled_server_path()
+    source = source or bundled_server_path()
+    destination = runtime_server_path()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if _should_copy_binary(source, destination):
+        shutil.copy2(source, destination)
+    ensure_executable(destination)
+    return destination
+
+
+def _should_copy_binary(source: Path, destination: Path) -> bool:
+    try:
+        source_stat = source.stat()
+        destination_stat = destination.stat()
+    except OSError:
+        return True
+    return source_stat.st_size != destination_stat.st_size or int(source_stat.st_mtime) > int(destination_stat.st_mtime)
+
+
 def platform_tag(system: str | None = None, machine: str | None = None) -> str:
     system = (system or platform.system()).lower()
     machine = (machine or platform.machine()).lower()
@@ -119,9 +153,13 @@ def ensure_running(logger=None, *, force: bool = False) -> dict[str, Any]:
                 health=current,
             )
 
-    binary = bundled_server_path()
-    if not binary.exists():
-        return _status("missing", f"companion binary not found: {binary}", binary=binary)
+    bundled_binary = bundled_server_path()
+    if not bundled_binary.exists():
+        return _status("missing", f"companion binary not found: {bundled_binary}", binary=bundled_binary)
+    try:
+        binary = prepare_runtime_server_binary(bundled_binary)
+    except OSError as exc:
+        return _status("missing", f"failed to prepare companion binary: {exc}", binary=bundled_binary)
 
     process = start_companion(binary, logger=logger)
     deadline = time.time() + float(os.environ.get("DECKHAND_COMPANION_START_TIMEOUT_SECONDS", "3"))
@@ -163,7 +201,7 @@ def start_companion(binary: Path, logger=None) -> subprocess.Popen:
     }
     _process = subprocess.Popen(  # noqa: S603 - launches bundled local companion
         command,
-        cwd=str(Path(__file__).resolve().parents[1]),
+        cwd=str(default_runtime_dir()),
         env=env,
         stdout=stdout,
         stderr=stderr,
@@ -245,7 +283,7 @@ def runtime_status() -> dict[str, Any]:
         detail,
         owned=_started_pid is not None,
         pid=pid,
-        binary=bundled_server_path(),
+        binary=companion_server_path(),
         health=health,
     )
 
@@ -308,11 +346,11 @@ def clear_pid_file() -> None:
 
 
 def default_runtime_dir() -> Path:
-    return Path.home() / "Library" / "Application Support" / "Deckhand" / "runtime"
+    return work_root() / "runtime"
 
 
 def default_log_dir() -> Path:
-    return Path.home() / "Library" / "Application Support" / "Deckhand" / "logs"
+    return work_root() / "logs"
 
 
 def _status(
@@ -329,7 +367,7 @@ def _status(
         "detail": detail,
         "ownedByAnki": owned,
         "pid": pid,
-        "binary": str(binary or bundled_server_path()),
+        "binary": str(binary or companion_server_path()),
         "url": companion_url(),
         "bridgeUrl": os.environ.get("DECKHAND_SAFE_BRIDGE_URL", f"ws://{companion_host()}:{companion_port()}/ws/anki"),
         "auth": {
