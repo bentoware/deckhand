@@ -304,6 +304,12 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn(r"C:\Program Files\Anki\anki.exe", joined)
         self.assertIn("Get-Process -Id", joined)
         self.assertIn("$parentPid", joined)
+        self.assertIn("Deckhand\\logs", joined)
+        self.assertIn("anki-cdp-restart.log", joined)
+        self.assertIn("Add-Content", joined)
+        self.assertIn("Get-Process -Name anki", joined)
+        self.assertIn("$_.Path -eq $ankiPath", joined)
+        self.assertIn("AddSeconds(180)", joined)
         self.assertIn("Start-Process -FilePath", joined)
         self.assertNotIn("Stop-Process", joined)
 
