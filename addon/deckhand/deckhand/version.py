@@ -3,4 +3,4 @@
 Keep ``manifest.json``'s ``human_version`` in sync; a unit test enforces it.
 """
 
-ADDON_VERSION = "0.1.3"
+ADDON_VERSION = "0.1.4"

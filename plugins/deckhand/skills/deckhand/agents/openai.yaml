@@ -1,6 +1,6 @@
 interface:
   display_name: "Deckhand"
-  short_description: "Make, fix, and organize Anki cards the right way"
+  short_description: "Reach your Anki study goal with safe, high-quality help"
   icon_small: "./assets/icon.png"
   icon_large: "./assets/logo.png"
-  default_prompt: "Use $deckhand to create well-cited Anki cards from my source material, check my cards' quality like a code review, fix my weak cards and leeches, or organize my decks — previewing changes before applying them."
+  default_prompt: "Use $deckhand to help me reach my Anki study goal: make useful cards, improve weak ones, study due cards, check quality, or clean up decks while previewing changes before anything is applied."

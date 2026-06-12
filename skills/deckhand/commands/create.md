@@ -1,21 +1,25 @@
 # deckhand create
 
-Turn source material — PDFs, slides, lecture notes, webpages, pasted excerpts, or a named topic — into cited, rubric-checked Anki cards. The source is the authority; cards are faithful, small, and testable.
+Turn the user's source, topic, goal, or rough idea into useful Anki cards. Default to faithful, small, testable, cited cards when source material exists, but do not make the user be a perfect prompt engineer: infer ordinary defaults, produce a useful preview, and let the user steer from there.
 
-## Flow
+## Intent-first recipe
 
-1. **Intake.** Establish: the source (file, paste, URL, or topic), the target audience and their level, the destination deck, the note type, the citation convention, and whether to inspect existing related cards first. Ask only for what you can't infer; one round of questions, not an interrogation.
-2. **Inspect.** Look at the live collection (see [../references/runtime.md](../references/runtime.md)): does the deck exist, what note type fits, are there existing cards on this material that new cards would duplicate or interfere with?
-3. **Extract learning objectives** from the source before writing any card. Objectives, not paragraphs, become cards.
-4. **Draft.** Convert claims into atomic prompts. Cite every source-derived card (page, slide, section, heading, filename, URL, DOI, or the user's source label). Distinguish source claims from memory hooks — mnemonics and analogies are welcome but must read as hooks, never as facts. If the source doesn't support a claim, mark it `source-needed` instead of making it sound authoritative.
-5. **Self-check.** Run every draft against [../references/rubric.md](../references/rubric.md) before showing it. Fix blockers and majors; mention any minors you deliberately kept. This is the same check the `check` verb runs on existing cards — new cards are not exempt.
-6. **Preview.** Show the proposed cards with fields, citation, tags, and a one-line rationale each. State the count and destination deck.
-7. **Apply on approval.** Create the notes, confirm the count, and call `mw.reset()` so the user sees them. For large batches, back up first.
+- Understand the desired end state: what the learner needs to remember or do, where the cards should land, and whether the user wants polished cards, a quick rough pass, or broad coverage.
+- Ask only for missing details that materially affect the result: source/topic, level, target deck, note type, card direction, or safety-critical grounding. Otherwise choose a reasonable default and say what you assumed.
+- Inspect the live collection when it will improve the outcome: destination deck, note type, existing related cards, duplicates, or current study context.
+- Turn learning objectives into cards. Use the user's requested count as a goal, not a reason to pad low-value cards.
+- Preview before writing. Show enough fields, citations or labels, tags, and rationale for the user to judge the result. Apply only after approval.
 
-## Domain material
+## Grounding and escape hatches
 
-For medical/health-science, language-learning, or slide-deck sources, read [../references/domains.md](../references/domains.md) first — these have hard rules (medical cards are never uncited) and proven card patterns.
+- Source-backed cards: cite page, slide, section, heading, filename, URL, DOI, or the user's source label.
+- Low-risk practice cards without source material: allowed when useful, but label them as model-generated drafts or practice material and avoid pretending they are source-cited.
+- Rough/fast mode: allowed when the user asks for speed or breadth. State the tradeoff, keep the preview honest, and offer a polish pass.
+- Source-sensitive or authority-sensitive material, such as medical, legal, exam-specific, clinical, regulatory, or user-supplied course content: no fabricated authority. Without a source, offer a scaffold, question list, or `source-needed` draft rather than authoritative cards.
+- Domain material: use [../references/domains.md](../references/domains.md) as a quality lens for medical, language-learning, and slide-deck material.
 
-## Quality over quantity
+## Examples
 
-Fewer good cards beat many mediocre ones. If the user asks for "all" of a large source, propose a scoped first batch (one chapter, one lecture) and iterate. Never pad output with low-value cards to look productive.
+- "Make me cards about the French Revolution" -> a topic with no source: draft labeled model-generated cards on the ordinary high-value points, preview a first batch, and offer to work from a real source if the user wants cited cards.
+- "Make rough cards fast from this chapter" -> produce a clearly labeled rough preview and name what polish was deferred.
+- "Turn these slides into cards" -> preserve slide structure and cite every card by slide.
