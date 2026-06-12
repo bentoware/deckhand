@@ -395,6 +395,8 @@ def _build_status_tab(parent: Any, anki_tools: list[str], logger=None) -> Any:
         _update_pill(pills["Local helper"], _user_status(runtime.get("state", "unknown")), "ok" if runtime.get("state") == "running" else "warn")
         _update_pill(pills["Anki bridge"], _user_status(bridge.get("state", "unknown")), "ok" if bridge.get("state") == "connected" else "warn")
         _update_pill(pills["WebEngine control"], "available" if cdp["open"] else "off (optional)", "ok" if cdp["open"] else "warn")
+        webengine_restart_button.setEnabled(not bool(cdp["open"]))
+        webengine_restart_button.setText("WebEngine control is available" if cdp["open"] else BANNER_PRIMARY_ACTION)
 
     results = QPlainTextEdit()
     results.setReadOnly(True)
@@ -409,8 +411,13 @@ def _build_status_tab(parent: Any, anki_tools: list[str], logger=None) -> Any:
             logger("management.connection_test_run", passed=all(check["ok"] for check in checks))
 
     test_button.clicked.connect(lambda _checked=False: run_test())
+    webengine_restart_button = QPushButton(BANNER_PRIMARY_ACTION)
+    webengine_restart_button.clicked.connect(
+        lambda _checked=False: restart_anki_with_cdp(cdp_status()["port"], logger=logger)
+    )
     button_row = QHBoxLayout()
     button_row.addWidget(test_button)
+    button_row.addWidget(webengine_restart_button)
     button_row.addStretch(1)
     layout.addLayout(button_row)
     layout.addWidget(results, 1)

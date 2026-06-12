@@ -1,4 +1,5 @@
 import sys
+import ast
 import base64
 import json
 import os
@@ -43,6 +44,40 @@ from deckhand import web
 from deckhand import webengine_tools
 from deckhand.direct_executor import DirectExecutor
 from deckhand.version import ADDON_VERSION
+
+
+def _qt_import_names(nodes) -> set[str]:
+    names: set[str] = set()
+    for node in nodes:
+        if isinstance(node, ast.ImportFrom) and node.module == "aqt.qt":
+            names.update(alias.asname or alias.name for alias in node.names)
+    return names
+
+
+def _direct_qt_name_uses(function: ast.FunctionDef | ast.AsyncFunctionDef, qt_names: set[str]) -> set[str]:
+    used: set[str] = set()
+    for child in ast.iter_child_nodes(function):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            continue
+        for node in ast.walk(child):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                continue
+            if isinstance(node, ast.Name) and node.id in qt_names:
+                used.add(node.id)
+    return used
+
+
+def _direct_qt_import_names(function: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    imported: set[str] = set()
+    for child in ast.iter_child_nodes(function):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            continue
+        for node in ast.walk(child):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                continue
+            if isinstance(node, ast.ImportFrom) and node.module == "aqt.qt":
+                imported.update(alias.asname or alias.name for alias in node.names)
+    return imported
 
 
 class AddonShellTests(unittest.TestCase):
@@ -414,6 +449,63 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn('QPushButton("Restart helper")', source)
         self.assertIn("companion.restart_companion", source)
         self.assertIn("management.companion_restart_requested", source)
+
+    def test_management_status_tab_exposes_webengine_restart_action(self):
+        source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
+        status_tab_source = source[source.index("def _build_status_tab") : source.index("def _build_server_tab")]
+
+        self.assertIn("webengine_restart_button = QPushButton(BANNER_PRIMARY_ACTION)", status_tab_source)
+        self.assertIn("restart_anki_with_cdp(cdp_status()[\"port\"], logger=logger)", status_tab_source)
+        self.assertIn("webengine_restart_button.setEnabled(not bool(cdp[\"open\"]))", status_tab_source)
+
+    def test_qt_symbols_are_imported_in_direct_function_scope(self):
+        qt_names = {
+            "QAction",
+            "QApplication",
+            "QButtonGroup",
+            "QCheckBox",
+            "QDesktopServices",
+            "QDialog",
+            "QDialogButtonBox",
+            "QDrag",
+            "QFormLayout",
+            "QFrame",
+            "QGuiApplication",
+            "QHBoxLayout",
+            "QLabel",
+            "QLineEdit",
+            "QListWidget",
+            "QListWidgetItem",
+            "QMenu",
+            "QMessageBox",
+            "QMimeData",
+            "QPlainTextEdit",
+            "QPushButton",
+            "QScrollArea",
+            "QStackedWidget",
+            "QTabWidget",
+            "QThread",
+            "QTimer",
+            "QToolBar",
+            "QUrl",
+            "QVBoxLayout",
+            "QWidget",
+            "Qt",
+        }
+        missing: list[str] = []
+
+        for path in sorted((ADDON / "deckhand").glob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            module_imports = _qt_import_names(tree.body)
+            for node in tree.body:
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                imported = module_imports | _direct_qt_import_names(node)
+                used = _direct_qt_name_uses(node, qt_names)
+                for name in sorted(used - imported):
+                    missing.append(f"{path.name}:{node.name}:{name}")
+
+        self.assertEqual(missing, [])
 
     def test_cdp_banner_copy_is_user_friendly(self):
         self.assertEqual(management.BANNER_TITLE, "Let Deckhand control Anki")
