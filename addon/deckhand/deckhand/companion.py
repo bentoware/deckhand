@@ -121,6 +121,7 @@ def platform_tag(system: str | None = None, machine: str | None = None) -> str:
 def ensure_running(logger=None, *, force: bool = False) -> dict[str, Any]:
     if os.environ.get("DECKHAND_COMPANION_DISABLED") == "1":
         return _status("disabled", "companion autostart disabled")
+    stopped_upgrade = stop_stale_recorded_companion(logger=logger)
     if not force and not settings.companion_autostart():
         current = health_status()
         if current["healthy"] and current.get("compatible", True):
@@ -135,9 +136,12 @@ def ensure_running(logger=None, *, force: bool = False) -> dict[str, Any]:
 
     current = health_status()
     if current["healthy"] and current.get("compatible", True):
+        detail = "companion already healthy"
+        if stopped_upgrade.get("state") == "stopped":
+            detail = "companion restarted after add-on upgrade"
         return _status(
             "running",
-            "companion already healthy",
+            detail,
             owned=_started_pid is not None,
             pid=_started_pid,
             health=current,
@@ -209,6 +213,7 @@ def start_companion(binary: Path, logger=None) -> subprocess.Popen:
     )
     _started_pid = _process.pid
     write_pid_file(_started_pid)
+    write_owner_file(_started_pid, binary)
     if logger:
         logger("companion.started", pid=_started_pid, command=command)
     return _process
@@ -229,10 +234,33 @@ def stop_recorded_companion(logger=None, timeout: float = 2.0) -> dict[str, Any]
     return stop_companion_pid(pid, logger=logger, timeout=timeout, owned=_started_pid is not None)
 
 
+def stop_stale_recorded_companion(logger=None) -> dict[str, Any]:
+    owner = read_owner_file()
+    if not owner:
+        return {"state": "not_owned", "detail": "no Deckhand companion owner metadata recorded"}
+    if str(owner.get("addonVersion") or "") == ADDON_VERSION:
+        return {"state": "current", "detail": "recorded companion matches this add-on", "pid": read_pid_file()}
+    pid = read_pid_file()
+    if pid is None:
+        clear_owner_file()
+        return {"state": "not_owned", "detail": "stale companion owner metadata had no PID"}
+    result = stop_companion_pid(pid, logger=logger, owned=True)
+    if logger:
+        logger(
+            "companion.upgrade_stop_requested",
+            previousAddonVersion=owner.get("addonVersion"),
+            currentAddonVersion=ADDON_VERSION,
+            pid=pid,
+            stopped=result.get("state") == "stopped",
+        )
+    return result
+
+
 def stop_companion_pid(pid: int, logger=None, timeout: float = 2.0, *, owned: bool = False) -> dict[str, Any]:
     global _process, _started_pid
     if not process_alive(pid):
         clear_pid_file()
+        clear_owner_file()
         _process = None
         _started_pid = None
         return _status("stopped", "recorded companion process is already gone", owned=owned, pid=pid)
@@ -248,6 +276,7 @@ def stop_companion_pid(pid: int, logger=None, timeout: float = 2.0, *, owned: bo
     stopped = not process_alive(pid)
     if stopped:
         clear_pid_file()
+        clear_owner_file()
         _process = None
         _started_pid = None
     result = _status("stopped" if stopped else "stopping", "companion stop requested", owned=owned, pid=pid)
@@ -324,10 +353,36 @@ def pid_file() -> Path:
     return default_runtime_dir() / "companion.pid"
 
 
+def owner_file() -> Path:
+    configured = os.environ.get("DECKHAND_COMPANION_OWNER_FILE")
+    if configured:
+        return Path(configured).expanduser()
+    return default_runtime_dir() / "companion-owner.json"
+
+
 def write_pid_file(pid: int) -> None:
     path = pid_file()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(str(pid), encoding="utf-8")
+
+
+def write_owner_file(pid: int, binary: Path) -> None:
+    path = owner_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "pid": pid,
+                "addonVersion": ADDON_VERSION,
+                "binary": str(binary),
+                "createdAtMs": int(time.time() * 1000),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def read_pid_file() -> int | None:
@@ -338,9 +393,24 @@ def read_pid_file() -> int | None:
         return None
 
 
+def read_owner_file() -> dict[str, Any]:
+    try:
+        payload = json.loads(owner_file().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def clear_pid_file() -> None:
     try:
         pid_file().unlink()
+    except OSError:
+        pass
+
+
+def clear_owner_file() -> None:
+    try:
+        owner_file().unlink()
     except OSError:
         pass
 

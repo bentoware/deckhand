@@ -348,6 +348,67 @@ class AddonShellTests(unittest.TestCase):
 
         self.assertEqual(prepared, configured)
 
+    def test_companion_owner_file_records_addon_version_and_binary(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            binary = Path(temp_dir) / companion.SERVER_BINARY
+            with mock.patch.dict(os.environ, {"DECKHAND_COMPANION_OWNER_FILE": str(Path(temp_dir) / "owner.json")}):
+                companion.write_owner_file(1234, binary)
+                owner = companion.read_owner_file()
+
+        self.assertEqual(owner["pid"], 1234)
+        self.assertEqual(owner["addonVersion"], ADDON_VERSION)
+        self.assertEqual(owner["binary"], str(binary))
+
+    def test_companion_keeps_current_recorded_owner(self):
+        original_stop_companion_pid = companion.stop_companion_pid
+        calls = []
+        with tempfile.TemporaryDirectory() as temp_dir:
+            owner_path = Path(temp_dir) / "owner.json"
+            pid_path = Path(temp_dir) / "companion.pid"
+            owner_path.write_text(json.dumps({"addonVersion": ADDON_VERSION, "pid": 1234}), encoding="utf-8")
+            pid_path.write_text("1234", encoding="utf-8")
+            companion.stop_companion_pid = lambda pid, logger=None, timeout=2.0, owned=False: calls.append(pid)
+            try:
+                with mock.patch.dict(
+                    os.environ,
+                    {
+                        "DECKHAND_COMPANION_OWNER_FILE": str(owner_path),
+                        "DECKHAND_COMPANION_PID_FILE": str(pid_path),
+                    },
+                ):
+                    status = companion.stop_stale_recorded_companion()
+            finally:
+                companion.stop_companion_pid = original_stop_companion_pid
+
+        self.assertEqual(status["state"], "current")
+        self.assertEqual(calls, [])
+
+    def test_companion_stops_recorded_owner_from_previous_addon_version(self):
+        original_stop_companion_pid = companion.stop_companion_pid
+        calls = []
+        with tempfile.TemporaryDirectory() as temp_dir:
+            owner_path = Path(temp_dir) / "owner.json"
+            pid_path = Path(temp_dir) / "companion.pid"
+            owner_path.write_text(json.dumps({"addonVersion": "0.1.7", "pid": 1234}), encoding="utf-8")
+            pid_path.write_text("1234", encoding="utf-8")
+            companion.stop_companion_pid = lambda pid, logger=None, timeout=2.0, owned=False: calls.append((pid, owned)) or {
+                "state": "stopped"
+            }
+            try:
+                with mock.patch.dict(
+                    os.environ,
+                    {
+                        "DECKHAND_COMPANION_OWNER_FILE": str(owner_path),
+                        "DECKHAND_COMPANION_PID_FILE": str(pid_path),
+                    },
+                ):
+                    status = companion.stop_stale_recorded_companion()
+            finally:
+                companion.stop_companion_pid = original_stop_companion_pid
+
+        self.assertEqual(status["state"], "stopped")
+        self.assertEqual(calls, [(1234, True)])
+
     def test_companion_ensure_running_reuses_healthy_server(self):
         original_health_status = companion.health_status
         original_started_pid = companion._started_pid
@@ -705,6 +766,8 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn('"DECKHAND_MCP_REQUIRE_TOKEN": "1" if settings.require_mcp_token() else "0"', source)
         self.assertIn("settings.persistent_token()", source)
         self.assertIn("cwd=str(default_runtime_dir())", source)
+        self.assertIn("write_owner_file(_started_pid, binary)", source)
+        self.assertIn("stop_stale_recorded_companion(logger=logger)", source)
 
     def test_connect_recipes_cover_target_clients(self):
         url = "http://127.0.0.1:28765/mcp"
