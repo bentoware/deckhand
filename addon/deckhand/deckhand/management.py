@@ -1135,16 +1135,25 @@ def _restart_anki_for_deckhand_from_ui(parent: Any, port: int | None = None, log
 def restart_anki_with_cdp(port: int | None = None, logger=None) -> dict[str, Any]:
     port = port or cdp_port()
     system = platform.system().lower()
-    if system == "windows":
-        executable = windows_anki_executable_path()
-        validation_error = _invalid_restart_executable_detail(executable)
-        if validation_error:
-            if logger:
-                logger("management.cdp_restart_invalid_executable", executable=str(executable), error=validation_error)
-            return {"ok": False, "port": port, "detail": validation_error}
-        command = restart_command(port, wait_for_pid=os.getpid(), executable=executable)
-    else:
-        command = restart_command(port)
+    try:
+        if system == "windows":
+            executable = windows_anki_executable_path()
+            validation_error = _invalid_restart_executable_detail(executable)
+            if validation_error:
+                if logger:
+                    logger("management.cdp_restart_invalid_executable", executable=str(executable), error=validation_error)
+                return {"ok": False, "port": port, "detail": validation_error}
+            command = restart_command(port, wait_for_pid=os.getpid(), executable=executable)
+        else:
+            command = restart_command(port)
+    except OSError as exc:
+        if logger:
+            logger("management.cdp_restart_prepare_failed", error=str(exc), port=port)
+        return {
+            "ok": False,
+            "port": port,
+            "detail": f"Deckhand could not prepare the Anki restart: {exc}",
+        }
     if logger:
         logger("management.cdp_restart_requested", command=command, port=port)
     try:
@@ -1175,35 +1184,7 @@ def restart_command(port: int | None = None, wait_for_pid: int | None = None, ex
     if platform.system().lower() == "windows":
         executable = executable or windows_anki_executable_path()
         wait_for_pid = wait_for_pid or os.getpid()
-        script = (
-            "$ErrorActionPreference = 'Stop'; "
-            "$logRoot = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'Deckhand\\logs' } else { $env:TEMP }; "
-            "New-Item -ItemType Directory -Force -Path $logRoot | Out-Null; "
-            "$logPath = Join-Path $logRoot 'anki-cdp-restart.log'; "
-            "function Log($message) { Add-Content -Path $logPath -Value \"$(Get-Date -Format o) $message\" }; "
-            f"$parentPid = {int(wait_for_pid)}; "
-            f"$ankiPath = {ps_quote(str(executable))}; "
-            f"Log 'waiting for Anki process to exit before relaunch on port {port}'; "
-            "$deadline = (Get-Date).AddSeconds(180); "
-            "while ((Get-Date) -lt $deadline) { "
-            "if (-not (Get-Process -Id $parentPid -ErrorAction SilentlyContinue)) { break }; "
-            "Start-Sleep -Milliseconds 500; "
-            "}; "
-            "if (Get-Process -Id $parentPid -ErrorAction SilentlyContinue) { Log 'timed out waiting for parent process'; exit 2 }; "
-            "$deadline = (Get-Date).AddSeconds(60); "
-            "while ((Get-Date) -lt $deadline) { "
-            "$running = @(Get-Process -Name anki -ErrorAction SilentlyContinue | Where-Object { try { $_.Path -eq $ankiPath } catch { $false } }); "
-            "if ($running.Count -eq 0) { break }; "
-            "Start-Sleep -Milliseconds 500; "
-            "}; "
-            "$running = @(Get-Process -Name anki -ErrorAction SilentlyContinue | Where-Object { try { $_.Path -eq $ankiPath } catch { $false } }); "
-            "if ($running.Count -gt 0) { Log 'timed out waiting for anki.exe instances; relaunch may reuse the old instance' }; "
-            f"$env:QTWEBENGINE_REMOTE_DEBUGGING = '{port}'; "
-            "Log \"starting $ankiPath\"; "
-            "Start-Process -FilePath $ankiPath; "
-            "Log 'restart command completed'"
-        )
-        return ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script]
+        return _write_windows_restart_command(port, wait_for_pid=wait_for_pid, executable=executable)
     if platform.system() == "Darwin":
         executable = anki_executable_path()
         log_path = Path.home() / "Library" / "Logs" / "Deckhand" / "anki-cdp-restart.log"
@@ -1241,6 +1222,67 @@ def _popen_detached(command: list[str]) -> subprocess.Popen:
         if flags:
             return subprocess.Popen(command, creationflags=flags)  # noqa: S603 - explicit local app restart command
     return subprocess.Popen(command, start_new_session=True)  # noqa: S603 - explicit local app restart command
+
+
+def _write_windows_restart_command(port: int, *, wait_for_pid: int, executable: Path) -> list[str]:
+    log_dir = companion.default_log_dir()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "anki-cdp-restart.log"
+    script_path = log_dir / "anki-cdp-restart.cmd"
+    _append_windows_restart_log(
+        log_path,
+        f"scheduled restart worker for pid {int(wait_for_pid)} on port {int(port)} using {executable}",
+    )
+    script = "\r\n".join(
+        [
+            "@echo off",
+            "setlocal EnableExtensions",
+            f'set "LOG_PATH={log_path}"',
+            f'set "ANKI_EXE={executable}"',
+            f'set "PARENT_PID={int(wait_for_pid)}"',
+            f'set "PORT={int(port)}"',
+            '>>"%LOG_PATH%" echo [%DATE% %TIME%] restarter started for pid %PARENT_PID% on port %PORT%',
+            "set /a WAITED=0",
+            ":wait_parent",
+            'tasklist /FI "PID eq %PARENT_PID%" /FO CSV /NH | findstr /C:"%PARENT_PID%" >nul 2>nul',
+            "if errorlevel 1 goto wait_anki",
+            "if %WAITED% GEQ 180 (",
+            '  >>"%LOG_PATH%" echo [%DATE% %TIME%] timed out waiting for pid %PARENT_PID%',
+            "  exit /b 2",
+            ")",
+            "timeout /t 1 /nobreak >nul",
+            "set /a WAITED+=1",
+            "goto wait_parent",
+            ":wait_anki",
+            "set /a WAITED_ANKI=0",
+            ":wait_anki_loop",
+            'tasklist /FI "IMAGENAME eq anki.exe" /FO CSV /NH | findstr /I /C:"anki.exe" >nul 2>nul',
+            "if errorlevel 1 goto launch_anki",
+            "if %WAITED_ANKI% GEQ 60 (",
+            '  >>"%LOG_PATH%" echo [%DATE% %TIME%] anki.exe still visible; attempting relaunch anyway',
+            "  goto launch_anki",
+            ")",
+            "timeout /t 1 /nobreak >nul",
+            "set /a WAITED_ANKI+=1",
+            "goto wait_anki_loop",
+            ":launch_anki",
+            'set "QTWEBENGINE_REMOTE_DEBUGGING=%PORT%"',
+            '>>"%LOG_PATH%" echo [%DATE% %TIME%] launching "%ANKI_EXE%"',
+            'start "" "%ANKI_EXE%"',
+            "set RC=%ERRORLEVEL%",
+            '>>"%LOG_PATH%" echo [%DATE% %TIME%] start returned %RC%',
+            "exit /b %RC%",
+            "",
+        ]
+    )
+    script_path.write_text(script, encoding="utf-8")
+    return ["cmd.exe", "/d", "/c", str(script_path)]
+
+
+def _append_windows_restart_log(log_path: Path, message: str) -> None:
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%S")
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write(f"{timestamp} {message}\n")
 
 
 def _request_anki_close_for_restart(logger=None) -> dict[str, Any]:
@@ -1308,10 +1350,6 @@ def windows_anki_executable_path() -> Path:
 
 def sh_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
-
-
-def ps_quote(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
 
 
 def _port_open(host: str, port: int) -> bool:

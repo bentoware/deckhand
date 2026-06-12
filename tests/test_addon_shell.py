@@ -288,29 +288,40 @@ class AddonShellTests(unittest.TestCase):
 
     def test_management_windows_restart_command_sets_qtwebengine_debug_port(self):
         original = os.environ.get("DECKHAND_ANKI_EXECUTABLE")
-        os.environ["DECKHAND_ANKI_EXECUTABLE"] = r"C:\Program Files\Anki\anki.exe"
-        try:
-            with mock.patch.object(management.platform, "system", lambda: "Windows"):
-                command = management.restart_command(9444)
-        finally:
-            if original is None:
-                os.environ.pop("DECKHAND_ANKI_EXECUTABLE", None)
-            else:
-                os.environ["DECKHAND_ANKI_EXECUTABLE"] = original
+        original_state_root = os.environ.get("DECKHAND_ANKI_EXTENSION_STATE_ROOT")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            os.environ["DECKHAND_ANKI_EXECUTABLE"] = r"C:\Program Files\Anki\anki.exe"
+            os.environ["DECKHAND_ANKI_EXTENSION_STATE_ROOT"] = temp_dir
+            try:
+                with mock.patch.object(management.platform, "system", lambda: "Windows"):
+                    command = management.restart_command(9444, wait_for_pid=12345)
+            finally:
+                if original is None:
+                    os.environ.pop("DECKHAND_ANKI_EXECUTABLE", None)
+                else:
+                    os.environ["DECKHAND_ANKI_EXECUTABLE"] = original
+                if original_state_root is None:
+                    os.environ.pop("DECKHAND_ANKI_EXTENSION_STATE_ROOT", None)
+                else:
+                    os.environ["DECKHAND_ANKI_EXTENSION_STATE_ROOT"] = original_state_root
+
+            script_path = Path(temp_dir) / "logs" / "anki-cdp-restart.cmd"
+            log_path = Path(temp_dir) / "logs" / "anki-cdp-restart.log"
+            script = script_path.read_text(encoding="utf-8")
+            log = log_path.read_text(encoding="utf-8")
 
         joined = " ".join(command)
-        self.assertEqual(command[:4], ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass"])
-        self.assertIn("QTWEBENGINE_REMOTE_DEBUGGING = '9444'", joined)
-        self.assertIn(r"C:\Program Files\Anki\anki.exe", joined)
-        self.assertIn("Get-Process -Id", joined)
-        self.assertIn("$parentPid", joined)
-        self.assertIn("Deckhand\\logs", joined)
-        self.assertIn("anki-cdp-restart.log", joined)
-        self.assertIn("Add-Content", joined)
-        self.assertIn("Get-Process -Name anki", joined)
-        self.assertIn("$_.Path -eq $ankiPath", joined)
-        self.assertIn("AddSeconds(180)", joined)
-        self.assertIn("Start-Process -FilePath", joined)
+        self.assertEqual(command[:3], ["cmd.exe", "/d", "/c"])
+        self.assertEqual(Path(command[3]).resolve(), script_path.resolve())
+        self.assertIn("QTWEBENGINE_REMOTE_DEBUGGING=%PORT%", script)
+        self.assertIn(r"C:\Program Files\Anki\anki.exe", script)
+        self.assertIn("PID eq %PARENT_PID%", script)
+        self.assertIn("IMAGENAME eq anki.exe", script)
+        self.assertIn("anki-cdp-restart.cmd", joined)
+        self.assertIn("anki-cdp-restart.log", script)
+        self.assertIn("start", script)
+        self.assertIn("scheduled restart worker for pid 12345 on port 9444", log)
+        self.assertNotIn("powershell", joined.lower())
         self.assertNotIn("Stop-Process", joined)
 
     def test_windows_restart_validates_executable_before_scheduling(self):
@@ -329,15 +340,19 @@ class AddonShellTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             executable = Path(temp_dir) / "anki.exe"
             executable.write_text("", encoding="utf-8")
-            with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXECUTABLE": str(executable)}):
+            state_root = Path(temp_dir) / "deckhand-state"
+            with mock.patch.dict(
+                os.environ,
+                {"DECKHAND_ANKI_EXECUTABLE": str(executable), "DECKHAND_ANKI_EXTENSION_STATE_ROOT": str(state_root)},
+            ):
                 with mock.patch.object(management.platform, "system", lambda: "Windows"):
                     with mock.patch.object(management, "_popen_detached") as popen:
                         with mock.patch.object(management, "_request_anki_close_for_restart", return_value={"ok": True}) as close:
                             result = management.restart_anki_with_cdp(9555)
 
         self.assertTrue(result["ok"])
-        self.assertIn(str(executable), " ".join(result["command"]))
-        self.assertIn("Get-Process -Id", " ".join(result["command"]))
+        self.assertEqual(result["command"][:3], ["cmd.exe", "/d", "/c"])
+        self.assertIn("anki-cdp-restart.cmd", " ".join(result["command"]))
         popen.assert_called_once()
         close.assert_called_once()
 
