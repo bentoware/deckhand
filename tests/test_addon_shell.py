@@ -211,6 +211,15 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("mw.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)", management_source)
         self.assertNotIn("QDockWidget", management_source)
 
+    def test_management_connect_tab_imports_qt_for_scrollbar_policy(self):
+        management_source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
+        connect_tab_source = management_source.split("def _build_connect_tab", 1)[1].split(
+            "def _build_status_tab", 1
+        )[0]
+
+        self.assertIn("Qt,", connect_tab_source)
+        self.assertIn("Qt.ScrollBarPolicy.ScrollBarAlwaysOff", connect_tab_source)
+
     def test_management_restart_command_sets_qtwebengine_debug_port(self):
         original = os.environ.get("DECKHAND_ANKI_EXECUTABLE")
         os.environ["DECKHAND_ANKI_EXECUTABLE"] = "/Applications/Anki.app/Contents/MacOS/launcher"

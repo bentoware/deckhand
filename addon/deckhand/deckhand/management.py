@@ -274,6 +274,7 @@ def _build_management_dialog(mw: Any, anki_tools: list[str], logger=None, initia
 
 def _build_connect_tab(parent: Any, logger=None, initial_client: str | None = None) -> Any:
     from aqt.qt import (
+        Qt,
         QFrame,
         QGuiApplication,
         QHBoxLayout,
