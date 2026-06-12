@@ -1257,6 +1257,12 @@ def _run_windows_restart_scheduler(command: list[str]) -> None:
     )  # noqa: S603
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or f"exit code {result.returncode}").strip()
+        subprocess.run(
+            ["schtasks.exe", "/delete", "/tn", task_name, "/f"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )  # noqa: S603
         raise subprocess.SubprocessError(detail)
 
 
@@ -1265,7 +1271,15 @@ def _write_windows_restart_command(port: int, *, wait_for_pid: int, executable: 
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "anki-cdp-restart.log"
     script_path = log_dir / "anki-cdp-restart.cmd"
+    vbs_path = log_dir / "anki-cdp-restart-hidden.vbs"
     task_name = f"DeckhandAnkiCdpRestart-{int(wait_for_pid)}"
+    lock_dir = log_dir / f"{task_name}.lock"
+    try:
+        lock_dir.rmdir()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
     _append_windows_restart_log(
         log_path,
         f"prepared restart worker task {task_name} for pid {int(wait_for_pid)} on port {int(port)} using {executable}",
@@ -1279,6 +1293,13 @@ def _write_windows_restart_command(port: int, *, wait_for_pid: int, executable: 
             f'set "PARENT_PID={int(wait_for_pid)}"',
             f'set "PORT={int(port)}"',
             f'set "TASK_NAME={task_name}"',
+            f'set "VBS_PATH={vbs_path}"',
+            f'set "LOCK_DIR={lock_dir}"',
+            'mkdir "%LOCK_DIR%" >nul 2>nul',
+            "if errorlevel 1 (",
+            '  >>"%LOG_PATH%" echo [%DATE% %TIME%] duplicate restarter ignored for pid %PARENT_PID% on port %PORT%',
+            "  exit /b 0",
+            ")",
             '>>"%LOG_PATH%" echo [%DATE% %TIME%] restarter started from Task Scheduler for pid %PARENT_PID% on port %PORT%',
             "set /a WAITED=0",
             ":wait_parent",
@@ -1286,7 +1307,8 @@ def _write_windows_restart_command(port: int, *, wait_for_pid: int, executable: 
             "if errorlevel 1 goto wait_anki",
             "if %WAITED% GEQ 180 (",
             '  >>"%LOG_PATH%" echo [%DATE% %TIME%] timed out waiting for pid %PARENT_PID%',
-            '  schtasks.exe /delete /tn "%TASK_NAME%" /f >nul 2>nul',
+            '  del "%VBS_PATH%" >nul 2>nul',
+            '  rmdir "%LOCK_DIR%" >nul 2>nul',
             "  exit /b 2",
             ")",
             'if %WAITED% EQU 0 >>"%LOG_PATH%" echo [%DATE% %TIME%] waiting for parent pid %PARENT_PID% to exit',
@@ -1314,14 +1336,30 @@ def _write_windows_restart_command(port: int, *, wait_for_pid: int, executable: 
             "set RC=%ERRORLEVEL%",
             '>>"%LOG_PATH%" echo [%DATE% %TIME%] start returned %RC%',
             'schtasks.exe /delete /tn "%TASK_NAME%" /f >nul 2>nul',
+            'del "%VBS_PATH%" >nul 2>nul',
+            'rmdir "%LOCK_DIR%" >nul 2>nul',
             "exit /b %RC%",
             "",
         ]
     )
     script_path.write_text(script, encoding="utf-8")
-    start_time = time.strftime("%H:%M", time.localtime(time.time() + 60))
-    task_command = f'"{os.environ.get("ComSpec", "cmd.exe")}" /d /c "{script_path}"'
-    _append_windows_restart_log(log_path, f"scheduled Task Scheduler handoff {task_name} for {start_time}")
+    cmd_exe = os.environ.get("ComSpec", "cmd.exe")
+    vbs = "\r\n".join(
+        [
+            'Set shell = CreateObject("WScript.Shell")',
+            f'shell.Run """" & "{cmd_exe}" & """" & " /d /c " & """" & "{script_path}" & """", 0, False',
+            "",
+        ]
+    )
+    vbs_path.write_text(vbs, encoding="utf-8")
+    # The task is run explicitly by _run_windows_restart_scheduler. schtasks
+    # still requires a schedule for /create, so use a far-future trigger and
+    # have the worker delete its task as soon as it starts.
+    start_time = "23:59"
+    start_date = "12/31/2099"
+    wscript = str(Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "wscript.exe")
+    task_command = f'"{wscript}" //B //Nologo "{vbs_path}"'
+    _append_windows_restart_log(log_path, f"scheduled hidden Task Scheduler handoff {task_name}")
     return [
         "schtasks.exe",
         "/create",
@@ -1331,6 +1369,8 @@ def _write_windows_restart_command(port: int, *, wait_for_pid: int, executable: 
         task_command,
         "/sc",
         "once",
+        "/sd",
+        start_date,
         "/st",
         start_time,
         "/f",

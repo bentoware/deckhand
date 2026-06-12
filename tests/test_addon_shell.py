@@ -306,8 +306,10 @@ class AddonShellTests(unittest.TestCase):
                     os.environ["DECKHAND_ANKI_EXTENSION_STATE_ROOT"] = original_state_root
 
             script_path = Path(temp_dir) / "logs" / "anki-cdp-restart.cmd"
+            vbs_path = Path(temp_dir) / "logs" / "anki-cdp-restart-hidden.vbs"
             log_path = Path(temp_dir) / "logs" / "anki-cdp-restart.log"
             script = script_path.read_text(encoding="utf-8")
+            vbs = vbs_path.read_text(encoding="utf-8")
             log = log_path.read_text(encoding="utf-8")
 
         joined = " ".join(command)
@@ -315,21 +317,36 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("/create", command)
         self.assertIn("--deckhand-run-task", command)
         self.assertIn("DeckhandAnkiCdpRestart-12345", command)
-        self.assertIn("anki-cdp-restart.cmd", joined)
+        self.assertIn("wscript.exe", joined)
+        self.assertIn("anki-cdp-restart-hidden.vbs", joined)
+        self.assertNotIn("cmd.exe /d /c", joined)
+        self.assertIn("anki-cdp-restart.cmd", vbs)
+        self.assertIn("WScript.Shell", vbs)
+        self.assertIn(", 0, False", vbs)
         self.assertIn("QTWEBENGINE_REMOTE_DEBUGGING=%PORT%", script)
         self.assertIn(r"C:\Program Files\Anki\anki.exe", script)
         self.assertIn("PID eq %PARENT_PID%", script)
         self.assertIn("IMAGENAME eq anki.exe", script)
         self.assertIn("restarter started from Task Scheduler", script)
+        self.assertIn("DeckhandAnkiCdpRestart-12345.lock", script)
+        self.assertIn('mkdir "%LOCK_DIR%"', script)
+        self.assertIn("duplicate restarter ignored", script)
+        self.assertIn('rmdir "%LOCK_DIR%"', script)
+        self.assertIn('schtasks.exe /delete /tn "%TASK_NAME%" /f', script)
         self.assertIn("ping -n 2 127.0.0.1 >nul", script)
+        self.assertIn('del "%VBS_PATH%"', script)
         self.assertNotIn("timeout /t", script)
-        self.assertIn("anki-cdp-restart.cmd", joined)
         self.assertIn("anki-cdp-restart.log", script)
         self.assertIn("start", script)
         self.assertIn("prepared restart worker task DeckhandAnkiCdpRestart-12345 for pid 12345 on port 9444", log)
-        self.assertIn("scheduled Task Scheduler handoff DeckhandAnkiCdpRestart-12345", log)
+        self.assertIn("scheduled hidden Task Scheduler handoff DeckhandAnkiCdpRestart-12345", log)
         self.assertNotIn("powershell", joined.lower())
         self.assertNotIn("Stop-Process", joined)
+        self.assertIn("/sd", command)
+        self.assertIn("12/31/2099", command)
+        self.assertIn("/st", command)
+        self.assertIn("23:59", command)
+        self.assertEqual(script.count('schtasks.exe /delete /tn "%TASK_NAME%" /f'), 1)
 
     def test_windows_restart_validates_executable_before_scheduling(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -359,7 +376,7 @@ class AddonShellTests(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["command"][0], "schtasks.exe")
-        self.assertIn("anki-cdp-restart.cmd", " ".join(result["command"]))
+        self.assertIn("anki-cdp-restart-hidden.vbs", " ".join(result["command"]))
         schedule.assert_called_once()
         close.assert_called_once()
 
@@ -406,6 +423,38 @@ class AddonShellTests(unittest.TestCase):
         self.assertEqual(
             run.call_args_list[1].args[0],
             ["schtasks.exe", "/run", "/tn", "DeckhandAnkiCdpRestart-123"],
+        )
+
+    def test_windows_restart_scheduler_deletes_task_when_run_fails(self):
+        command = [
+            "schtasks.exe",
+            "/create",
+            "/tn",
+            "DeckhandAnkiCdpRestart-123",
+            "/tr",
+            '"wscript.exe" //B //Nologo "C:\\Temp\\anki-cdp-restart-hidden.vbs"',
+            "/sc",
+            "once",
+            "/st",
+            "12:34",
+            "/f",
+            "--deckhand-run-task",
+            "DeckhandAnkiCdpRestart-123",
+        ]
+
+        with mock.patch.object(management.subprocess, "run") as run:
+            run.side_effect = [
+                SimpleNamespace(returncode=0, stdout="", stderr=""),
+                SimpleNamespace(returncode=1, stdout="", stderr="run failed"),
+                SimpleNamespace(returncode=0, stdout="", stderr=""),
+            ]
+            with self.assertRaises(management.subprocess.SubprocessError):
+                management._run_windows_restart_scheduler(command)
+
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual(
+            run.call_args_list[2].args[0],
+            ["schtasks.exe", "/delete", "/tn", "DeckhandAnkiCdpRestart-123", "/f"],
         )
 
     def test_management_uses_anki_launcher_by_default(self):
