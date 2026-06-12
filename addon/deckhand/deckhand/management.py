@@ -1114,6 +1114,16 @@ def companion_module_restart(logger=None) -> dict[str, Any]:
 
 def restart_anki_with_cdp(port: int | None = None, logger=None) -> dict[str, Any]:
     port = port or cdp_port()
+    if platform.system().lower() == "windows":
+        # restart_command builds POSIX shell scripts; there is no Windows recipe yet.
+        if logger:
+            logger("management.cdp_restart_unsupported", platform="windows", port=port)
+        return {
+            "ok": False,
+            "port": port,
+            "detail": "CDP restart is not supported on Windows yet; restart Anki manually with "
+            f"QTWEBENGINE_REMOTE_DEBUGGING={port} set.",
+        }
     command = restart_command(port)
     if logger:
         logger("management.cdp_restart_requested", command=command, port=port)

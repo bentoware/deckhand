@@ -14,18 +14,20 @@ from urllib.error import URLError
 from urllib.request import urlopen
 
 from . import settings
-from .state_paths import work_root
+from .state_paths import runtime_root, work_root
 from .version import ADDON_VERSION
 
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = settings.DEFAULT_COMPANION_PORT
 EXPECTED_SERVICE = "deckhand-anki-companion"
-SERVER_BINARY = "deckhand-server.exe" if platform.system().lower() == "windows" else "deckhand-server"
+IS_WINDOWS = platform.system().lower() == "windows"
+SERVER_BINARY = "deckhand-server.exe" if IS_WINDOWS else "deckhand-server"
 
 _process: subprocess.Popen | None = None
 _started_pid: int | None = None
 _companion_token: str | None = None
+_log_handles: list[Any] = []
 
 
 def companion_host() -> str:
@@ -98,7 +100,23 @@ def prepare_runtime_server_binary(source: Path | None = None) -> Path:
     if _should_copy_binary(source, destination):
         shutil.copy2(source, destination)
     ensure_executable(destination)
+    prune_stale_runtime_binaries()
     return destination
+
+
+def prune_stale_runtime_binaries() -> None:
+    """Drop runtime copies left behind by previous add-on versions.
+
+    Best-effort: a still-running old helper keeps its binary locked on
+    Windows, so failures are ignored and retried on the next start.
+    """
+    bin_root = default_runtime_dir() / "bin"
+    try:
+        stale_dirs = [path for path in bin_root.iterdir() if path.name != ADDON_VERSION]
+    except OSError:
+        return
+    for path in stale_dirs:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def _should_copy_binary(source: Path, destination: Path) -> bool:
@@ -122,6 +140,14 @@ def ensure_running(logger=None, *, force: bool = False) -> dict[str, Any]:
     if os.environ.get("DECKHAND_COMPANION_DISABLED") == "1":
         return _status("disabled", "companion autostart disabled")
     stopped_upgrade = stop_stale_recorded_companion(logger=logger)
+    if stopped_upgrade.get("state") == "stopping":
+        # The old helper still holds the port; a new process would fail to
+        # bind and clobber the recorded PID of the one that is shutting down.
+        return _status(
+            "stopping",
+            "previous companion is still stopping; not starting a replacement yet",
+            pid=stopped_upgrade.get("pid"),
+        )
     if not force and not settings.companion_autostart():
         current = health_status()
         if current["healthy"] and current.get("compatible", True):
@@ -185,13 +211,24 @@ def ensure_executable(binary: Path) -> None:
         pass
 
 
+def _close_log_handles() -> None:
+    for handle in _log_handles:
+        try:
+            handle.close()
+        except OSError:
+            pass
+    _log_handles.clear()
+
+
 def start_companion(binary: Path, logger=None) -> subprocess.Popen:
     global _process, _started_pid
     ensure_executable(binary)
     log_dir = Path(os.environ.get("DECKHAND_COMPANION_LOG_DIR", str(default_log_dir()))).expanduser()
     log_dir.mkdir(parents=True, exist_ok=True)
+    _close_log_handles()
     stdout = (log_dir / "companion.stdout.log").open("ab")
     stderr = (log_dir / "companion.stderr.log").open("ab")
+    _log_handles.extend([stdout, stderr])
     command = [str(binary), "serve", "--bind", companion_bind()]
     token = companion_token()
     env = {
@@ -203,13 +240,21 @@ def start_companion(binary: Path, logger=None) -> subprocess.Popen:
         # Keep the Rust server's state root identical to the add-on's.
         "DECKHAND_ANKI_EXTENSION_STATE_ROOT": str(work_root()),
     }
+    if IS_WINDOWS:
+        # start_new_session is silently ignored on Windows; the console-subsystem
+        # helper would otherwise flash a console window when launched from Anki.
+        detach_kwargs: dict[str, Any] = {
+            "creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
+        }
+    else:
+        detach_kwargs = {"start_new_session": True}
     _process = subprocess.Popen(  # noqa: S603 - launches bundled local companion
         command,
         cwd=str(default_runtime_dir()),
         env=env,
         stdout=stdout,
         stderr=stderr,
-        start_new_session=True,
+        **detach_kwargs,
     )
     _started_pid = _process.pid
     write_pid_file(_started_pid)
@@ -244,6 +289,22 @@ def stop_stale_recorded_companion(logger=None) -> dict[str, Any]:
     if pid is None:
         clear_owner_file()
         return {"state": "not_owned", "detail": "stale companion owner metadata had no PID"}
+    if not process_alive(pid):
+        clear_pid_file()
+        clear_owner_file()
+        return {"state": "stopped", "detail": "stale companion process is already gone", "pid": pid}
+    if health_status().get("service") != EXPECTED_SERVICE:
+        # The recorded PID is alive but nothing on the companion port answers
+        # as Deckhand; the PID may have been reused by an unrelated process
+        # (e.g. after a reboot), so never kill it on metadata alone.
+        clear_owner_file()
+        if logger:
+            logger("companion.upgrade_stop_skipped", pid=pid, reason="unverified_process")
+        return {
+            "state": "skipped",
+            "detail": "recorded process could not be verified as a Deckhand companion; left running",
+            "pid": pid,
+        }
     result = stop_companion_pid(pid, logger=logger, owned=True)
     if logger:
         logger(
@@ -266,7 +327,7 @@ def stop_companion_pid(pid: int, logger=None, timeout: float = 2.0, *, owned: bo
         return _status("stopped", "recorded companion process is already gone", owned=owned, pid=pid)
 
     try:
-        os.kill(pid, signal.SIGTERM)
+        terminate_process(pid)
     except OSError as exc:
         return _status("stop_failed", f"failed to stop companion: {exc}", owned=owned, pid=pid)
 
@@ -322,11 +383,20 @@ def health_status() -> dict[str, Any]:
     try:
         with urlopen(url, timeout=0.3) as response:  # noqa: S310 - loopback-only default URL
             payload = json.loads(response.read().decode("utf-8"))
-        compatible = payload.get("service") == EXPECTED_SERVICE
+        service_ok = payload.get("service") == EXPECTED_SERVICE
+        # The server crate version is kept in lockstep with ADDON_VERSION (a
+        # unit test enforces it), so a mismatch means a stale helper from a
+        # previous add-on version is still answering on the port.
+        version_ok = str(payload.get("version") or "") == ADDON_VERSION
+        stale_reasons = []
+        if not service_ok:
+            stale_reasons.append("unexpected_service")
+        elif not version_ok:
+            stale_reasons.append("version_mismatch")
         return {
             "healthy": bool(payload.get("ready")),
-            "compatible": compatible,
-            "staleReasons": [] if compatible else ["unexpected_service"],
+            "compatible": service_ok and version_ok,
+            "staleReasons": stale_reasons,
             "url": url,
             "service": payload.get("service"),
             "version": payload.get("version"),
@@ -339,25 +409,86 @@ def health_status() -> dict[str, Any]:
 def process_alive(pid: int) -> bool:
     if pid <= 0:
         return False
+    if IS_WINDOWS:
+        # os.kill(pid, 0) is NOT a liveness probe on Windows: any signal other
+        # than CTRL_C/CTRL_BREAK calls TerminateProcess and kills the target.
+        return _windows_process_alive(pid)
     try:
         os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
     except OSError:
         return False
     return True
 
 
+def terminate_process(pid: int) -> None:
+    """Request process termination; raises OSError on failure."""
+    if IS_WINDOWS:
+        _windows_terminate_process(pid)
+        return
+    os.kill(pid, signal.SIGTERM)
+
+
+def _windows_process_alive(pid: int) -> bool:
+    import ctypes
+    from ctypes import wintypes
+
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    ERROR_ACCESS_DENIED = 5
+    STILL_ACTIVE = 259
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        # A process we lack query access to still exists.
+        return ctypes.get_last_error() == ERROR_ACCESS_DENIED
+    try:
+        exit_code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return False
+        return exit_code.value == STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _windows_terminate_process(pid: int) -> None:
+    import ctypes
+
+    PROCESS_TERMINATE = 0x0001
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+    if not handle:
+        raise OSError(f"OpenProcess(PROCESS_TERMINATE) failed for pid {pid}: error {ctypes.get_last_error()}")
+    try:
+        if not kernel32.TerminateProcess(handle, 15):
+            raise OSError(f"TerminateProcess failed for pid {pid}: error {ctypes.get_last_error()}")
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def pid_file() -> Path:
-    configured = os.environ.get("DECKHAND_COMPANION_PID_FILE")
-    if configured:
-        return Path(configured).expanduser()
-    return default_runtime_dir() / "companion.pid"
+    return _runtime_file_candidates("DECKHAND_COMPANION_PID_FILE", "companion.pid")[0]
 
 
 def owner_file() -> Path:
-    configured = os.environ.get("DECKHAND_COMPANION_OWNER_FILE")
+    return _runtime_file_candidates("DECKHAND_COMPANION_OWNER_FILE", "companion-owner.json")[0]
+
+
+def _runtime_file_candidates(env_var: str, name: str) -> list[Path]:
+    """Preferred path first, then the pre-0.1.10 location (the state root) so
+    upgrades on Windows still find files written under the roaming profile."""
+    configured = os.environ.get(env_var)
     if configured:
-        return Path(configured).expanduser()
-    return default_runtime_dir() / "companion-owner.json"
+        return [Path(configured).expanduser()]
+    paths = [default_runtime_dir() / name]
+    legacy = work_root() / "runtime" / name
+    if legacy not in paths:
+        paths.append(legacy)
+    return paths
 
 
 def write_pid_file(pid: int) -> None:
@@ -386,41 +517,49 @@ def write_owner_file(pid: int, binary: Path) -> None:
 
 
 def read_pid_file() -> int | None:
-    try:
-        raw = pid_file().read_text(encoding="utf-8").strip()
-        return int(raw) if raw else None
-    except (OSError, ValueError):
-        return None
+    for path in _runtime_file_candidates("DECKHAND_COMPANION_PID_FILE", "companion.pid"):
+        try:
+            raw = path.read_text(encoding="utf-8").strip()
+            if raw:
+                return int(raw)
+        except (OSError, ValueError):
+            continue
+    return None
 
 
 def read_owner_file() -> dict[str, Any]:
-    try:
-        payload = json.loads(owner_file().read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
+    for path in _runtime_file_candidates("DECKHAND_COMPANION_OWNER_FILE", "companion-owner.json"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return {}
 
 
 def clear_pid_file() -> None:
-    try:
-        pid_file().unlink()
-    except OSError:
-        pass
+    for path in _runtime_file_candidates("DECKHAND_COMPANION_PID_FILE", "companion.pid"):
+        try:
+            path.unlink()
+        except OSError:
+            pass
 
 
 def clear_owner_file() -> None:
-    try:
-        owner_file().unlink()
-    except OSError:
-        pass
+    for path in _runtime_file_candidates("DECKHAND_COMPANION_OWNER_FILE", "companion-owner.json"):
+        try:
+            path.unlink()
+        except OSError:
+            pass
 
 
 def default_runtime_dir() -> Path:
-    return work_root() / "runtime"
+    return runtime_root() / "runtime"
 
 
 def default_log_dir() -> Path:
-    return work_root() / "logs"
+    return runtime_root() / "logs"
 
 
 def _status(

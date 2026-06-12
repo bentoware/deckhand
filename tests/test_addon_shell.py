@@ -385,6 +385,8 @@ class AddonShellTests(unittest.TestCase):
 
     def test_companion_stops_recorded_owner_from_previous_addon_version(self):
         original_stop_companion_pid = companion.stop_companion_pid
+        original_process_alive = companion.process_alive
+        original_health_status = companion.health_status
         calls = []
         with tempfile.TemporaryDirectory() as temp_dir:
             owner_path = Path(temp_dir) / "owner.json"
@@ -394,6 +396,8 @@ class AddonShellTests(unittest.TestCase):
             companion.stop_companion_pid = lambda pid, logger=None, timeout=2.0, owned=False: calls.append((pid, owned)) or {
                 "state": "stopped"
             }
+            companion.process_alive = lambda pid: True
+            companion.health_status = lambda: {"healthy": True, "service": companion.EXPECTED_SERVICE}
             try:
                 with mock.patch.dict(
                     os.environ,
@@ -405,20 +409,158 @@ class AddonShellTests(unittest.TestCase):
                     status = companion.stop_stale_recorded_companion()
             finally:
                 companion.stop_companion_pid = original_stop_companion_pid
+                companion.process_alive = original_process_alive
+                companion.health_status = original_health_status
 
         self.assertEqual(status["state"], "stopped")
         self.assertEqual(calls, [(1234, True)])
 
+    def test_companion_skips_stale_stop_for_unverified_process(self):
+        original_stop_companion_pid = companion.stop_companion_pid
+        original_process_alive = companion.process_alive
+        original_health_status = companion.health_status
+        calls = []
+        with tempfile.TemporaryDirectory() as temp_dir:
+            owner_path = Path(temp_dir) / "owner.json"
+            pid_path = Path(temp_dir) / "companion.pid"
+            owner_path.write_text(json.dumps({"addonVersion": "0.1.7", "pid": 1234}), encoding="utf-8")
+            pid_path.write_text("1234", encoding="utf-8")
+            companion.stop_companion_pid = lambda pid, logger=None, timeout=2.0, owned=False: calls.append(pid)
+            companion.process_alive = lambda pid: True
+            companion.health_status = lambda: {"healthy": False, "error": "connection refused"}
+            try:
+                with mock.patch.dict(
+                    os.environ,
+                    {
+                        "DECKHAND_COMPANION_OWNER_FILE": str(owner_path),
+                        "DECKHAND_COMPANION_PID_FILE": str(pid_path),
+                    },
+                ):
+                    status = companion.stop_stale_recorded_companion()
+            finally:
+                companion.stop_companion_pid = original_stop_companion_pid
+                companion.process_alive = original_process_alive
+                companion.health_status = original_health_status
+
+            self.assertFalse(owner_path.exists())
+
+        self.assertEqual(status["state"], "skipped")
+        self.assertEqual(calls, [])
+
+    def test_companion_clears_stale_owner_when_process_is_gone(self):
+        original_process_alive = companion.process_alive
+        with tempfile.TemporaryDirectory() as temp_dir:
+            owner_path = Path(temp_dir) / "owner.json"
+            pid_path = Path(temp_dir) / "companion.pid"
+            owner_path.write_text(json.dumps({"addonVersion": "0.1.7", "pid": 1234}), encoding="utf-8")
+            pid_path.write_text("1234", encoding="utf-8")
+            companion.process_alive = lambda pid: False
+            try:
+                with mock.patch.dict(
+                    os.environ,
+                    {
+                        "DECKHAND_COMPANION_OWNER_FILE": str(owner_path),
+                        "DECKHAND_COMPANION_PID_FILE": str(pid_path),
+                    },
+                ):
+                    status = companion.stop_stale_recorded_companion()
+            finally:
+                companion.process_alive = original_process_alive
+
+            self.assertFalse(owner_path.exists())
+            self.assertFalse(pid_path.exists())
+
+        self.assertEqual(status["state"], "stopped")
+
+    def test_companion_health_treats_version_mismatch_as_stale(self):
+        class FakeResponse:
+            def __init__(self, payload):
+                self._body = json.dumps(payload).encode("utf-8")
+
+            def read(self):
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        original_urlopen = companion.urlopen
+        try:
+            companion.urlopen = lambda url, timeout=0.3: FakeResponse(
+                {"ready": True, "service": companion.EXPECTED_SERVICE, "version": "0.1.0"}
+            )
+            stale = companion.health_status()
+            companion.urlopen = lambda url, timeout=0.3: FakeResponse(
+                {"ready": True, "service": companion.EXPECTED_SERVICE, "version": ADDON_VERSION}
+            )
+            current = companion.health_status()
+        finally:
+            companion.urlopen = original_urlopen
+
+        self.assertTrue(stale["healthy"])
+        self.assertFalse(stale["compatible"])
+        self.assertEqual(stale["staleReasons"], ["version_mismatch"])
+        self.assertTrue(current["healthy"])
+        self.assertTrue(current["compatible"])
+        self.assertEqual(current["staleReasons"], [])
+
+    def test_companion_prunes_runtime_binaries_from_other_versions(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock.patch.dict(os.environ, {"DECKHAND_ANKI_EXTENSION_STATE_ROOT": str(Path(temp_dir) / "state")}):
+                old_dir = companion.default_runtime_dir() / "bin" / "0.0.1" / companion.platform_tag()
+                old_dir.mkdir(parents=True)
+                (old_dir / companion.SERVER_BINARY).write_text("old", encoding="utf-8")
+                source = Path(temp_dir) / "source" / companion.SERVER_BINARY
+                source.parent.mkdir()
+                source.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+
+                prepared = companion.prepare_runtime_server_binary(source)
+
+                self.assertTrue(prepared.exists())
+                self.assertFalse(old_dir.exists())
+
+    def test_companion_ensure_running_defers_to_stopping_upgrade(self):
+        original_stop_stale = companion.stop_stale_recorded_companion
+        companion.stop_stale_recorded_companion = lambda logger=None: {"state": "stopping", "pid": 1234}
+        try:
+            status = companion.ensure_running()
+        finally:
+            companion.stop_stale_recorded_companion = original_stop_stale
+
+        self.assertEqual(status["state"], "stopping")
+        self.assertEqual(status["pid"], 1234)
+
+    def test_runtime_root_stays_out_of_roaming_profile_on_windows(self):
+        home = Path("/Users/example")
+        with mock.patch.dict(
+            os.environ,
+            {"LOCALAPPDATA": "/win/Local", "APPDATA": "/win/Roaming"},
+        ):
+            runtime = state_paths.default_runtime_root(home=home, system="windows")
+            state = state_paths.default_state_root(home=home, system="windows")
+
+        self.assertEqual(runtime, Path("/win/Local") / "Deckhand" / "state")
+        self.assertEqual(state, Path("/win/Roaming") / "Deckhand" / "state")
+        self.assertEqual(
+            state_paths.default_runtime_root(home=home, system="darwin"),
+            state_paths.default_state_root(home=home, system="darwin"),
+        )
+
     def test_companion_ensure_running_reuses_healthy_server(self):
         original_health_status = companion.health_status
         original_started_pid = companion._started_pid
+        original_stop_stale = companion.stop_stale_recorded_companion
         companion._started_pid = 4321
         companion.health_status = lambda: {"healthy": True, "version": "0.1.0"}
+        companion.stop_stale_recorded_companion = lambda logger=None: {"state": "not_owned"}
         try:
             status = companion.ensure_running()
         finally:
             companion.health_status = original_health_status
             companion._started_pid = original_started_pid
+            companion.stop_stale_recorded_companion = original_stop_stale
 
         self.assertEqual(status["state"], "running")
         self.assertEqual(status["pid"], 4321)
@@ -451,6 +593,7 @@ class AddonShellTests(unittest.TestCase):
         original_bundled_server_path = companion.bundled_server_path
         original_prepare_runtime_server_binary = companion.prepare_runtime_server_binary
         original_start_companion = companion.start_companion
+        original_stop_stale = companion.stop_stale_recorded_companion
         with tempfile.TemporaryDirectory() as temp_dir:
             binary = Path(temp_dir) / companion.SERVER_BINARY
             runtime_binary = Path(temp_dir) / "runtime" / companion.SERVER_BINARY
@@ -465,6 +608,7 @@ class AddonShellTests(unittest.TestCase):
             companion.bundled_server_path = lambda: binary
             companion.prepare_runtime_server_binary = lambda source=None: runtime_binary
             companion.start_companion = lambda path, logger=None: calls.append(path) or FakeProcess()
+            companion.stop_stale_recorded_companion = lambda logger=None: {"state": "not_owned"}
             try:
                 status = companion.ensure_running()
             finally:
@@ -472,6 +616,7 @@ class AddonShellTests(unittest.TestCase):
                 companion.bundled_server_path = original_bundled_server_path
                 companion.prepare_runtime_server_binary = original_prepare_runtime_server_binary
                 companion.start_companion = original_start_companion
+                companion.stop_stale_recorded_companion = original_stop_stale
 
         self.assertEqual(calls, [runtime_binary])
         self.assertEqual(status["state"], "running")
@@ -482,6 +627,8 @@ class AddonShellTests(unittest.TestCase):
         original_health_status = companion.health_status
         original_read_pid_file = companion.read_pid_file
         original_stop_recorded_companion = companion.stop_recorded_companion
+        original_stop_stale = companion.stop_stale_recorded_companion
+        companion.stop_stale_recorded_companion = lambda logger=None: {"state": "not_owned"}
         companion.health_status = lambda: {
             "healthy": True,
             "compatible": False,
@@ -495,12 +642,13 @@ class AddonShellTests(unittest.TestCase):
             companion.health_status = original_health_status
             companion.read_pid_file = original_read_pid_file
             companion.stop_recorded_companion = original_stop_recorded_companion
+            companion.stop_stale_recorded_companion = original_stop_stale
 
         self.assertEqual(status["state"], "stale")
         self.assertFalse(status["ownedByAnki"])
         self.assertEqual(status["health"]["staleReasons"], ["unexpected_service"])
 
-    def test_companion_status_compatibility_only_checks_service_identity(self):
+    def test_companion_status_compatibility_checks_service_and_version_only(self):
         original_urlopen = companion.urlopen
 
         class FakeResponse:
@@ -511,7 +659,13 @@ class AddonShellTests(unittest.TestCase):
                 return False
 
             def read(self):
-                return b'{"service":"deckhand-anki-companion","ready":true,"endpoints":["/api/codex/session/start"]}'
+                payload = {
+                    "service": "deckhand-anki-companion",
+                    "ready": True,
+                    "version": ADDON_VERSION,
+                    "endpoints": ["/api/codex/session/start"],
+                }
+                return json.dumps(payload).encode("utf-8")
 
         companion.urlopen = lambda url, timeout: FakeResponse()
         try:
@@ -769,6 +923,19 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("write_owner_file(_started_pid, binary)", source)
         self.assertIn("stop_stale_recorded_companion(logger=logger)", source)
 
+    def test_companion_process_control_is_windows_safe(self):
+        source = (ADDON / "deckhand" / "companion.py").read_text(encoding="utf-8")
+
+        # os.kill is never a liveness probe or terminator on Windows: signal 0
+        # would TerminateProcess the target via os.kill's Windows semantics.
+        self.assertIn("GetExitCodeProcess", source)
+        self.assertIn("PROCESS_QUERY_LIMITED_INFORMATION", source)
+        self.assertIn("def terminate_process", source)
+        self.assertIn("subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP", source)
+        alive_body = source.split("def process_alive", 1)[1].split("def terminate_process", 1)[0]
+        self.assertIn("if IS_WINDOWS:", alive_body)
+        self.assertIn("_windows_process_alive(pid)", alive_body)
+
     def test_connect_recipes_cover_target_clients(self):
         url = "http://127.0.0.1:28765/mcp"
 
@@ -1004,6 +1171,14 @@ class AddonShellTests(unittest.TestCase):
         self.assertEqual(manifest["human_version"], ADDON_VERSION)
         self.assertIn('"addonVersion": ADDON_VERSION,', addon_source)
         self.assertNotIn('"addonVersion": "0.', addon_source)
+
+    def test_companion_server_crate_version_matches_addon(self):
+        # The add-on compares the /status version against ADDON_VERSION to
+        # detect stale helpers, so the crate must be released in lockstep.
+        cargo = (ROOT / "crates" / "deckhand-server" / "Cargo.toml").read_text(encoding="utf-8")
+        package_section = cargo.split("[dependencies]", 1)[0]
+
+        self.assertIn(f'version = "{ADDON_VERSION}"', package_section)
 
     def test_update_version_comparison_handles_tags_and_suffixes(self):
         self.assertTrue(updates.is_newer("0.2.0", "0.1.0"))

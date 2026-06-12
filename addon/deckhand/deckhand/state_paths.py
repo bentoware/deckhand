@@ -19,11 +19,30 @@ def default_state_root(home: Path | None = None, system: str | None = None) -> P
     return base / "deckhand" / "state"
 
 
+def default_runtime_root(home: Path | None = None, system: str | None = None) -> Path:
+    home = home or Path.home()
+    system = (system or platform.system()).lower()
+    if system == "windows":
+        # Runtime files (copied executables, pid files, logs) are machine-local;
+        # keep them out of the roaming profile so they never sync across machines.
+        local = os.environ.get("LOCALAPPDATA")
+        base = Path(local) if local else home / "AppData" / "Local"
+        return base / "Deckhand" / "state"
+    return default_state_root(home=home, system=system)
+
+
 def state_root() -> Path:
     configured = os.environ.get("DECKHAND_ANKI_EXTENSION_STATE_ROOT")
     if configured:
         return Path(configured).expanduser().resolve()
     return default_state_root()
+
+
+def runtime_root() -> Path:
+    configured = os.environ.get("DECKHAND_ANKI_EXTENSION_STATE_ROOT")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return default_runtime_root()
 
 
 def work_root() -> Path:
