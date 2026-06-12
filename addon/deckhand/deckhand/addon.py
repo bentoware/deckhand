@@ -11,7 +11,6 @@ from . import bridge_transport
 from . import card_tools
 from . import companion
 from . import context_tools
-from . import dev_tools
 from . import import_export_tools
 from . import management
 from . import media_tools
@@ -186,15 +185,7 @@ def _install_menu(mw) -> None:
 
 
 def _register_default_tools() -> None:
-    _executor.register(
-        "anki_run_python",
-        lambda args: dev_tools.run_python_snippet(
-            str(args.get("snippet", "")),
-            result_file_path=str(args.get("resultFilePath", "")).strip() or None,
-            result_format=str(args.get("resultFormat", "json")),
-            inline_limit_bytes=args.get("inlineLimitBytes", dev_tools.DEFAULT_INLINE_LIMIT_BYTES),
-        ),
-    )
+    _executor.register("anki_run_python", _run_python_snippet)
     _executor.register("anki_runtime_info", lambda _args: runtime_tools.runtime_info(_mw()))
     _executor.register(
         "anki_app_get_state", lambda _args: context_tools.current_context(_mw())
@@ -383,6 +374,18 @@ def _register_default_tools() -> None:
             waitForCompletion=bool(args.get("waitForCompletion", True)),
         ),
     )
+
+
+def _run_python_snippet(args: dict[str, object]) -> dict[str, object]:
+    from . import runtime_snippets
+
+    return runtime_snippets.run_python_snippet(
+        str(args.get("snippet", "")),
+        result_file_path=str(args.get("resultFilePath", "")).strip() or None,
+        result_format=str(args.get("resultFormat", "json")),
+        inline_limit_bytes=args.get("inlineLimitBytes", runtime_snippets.DEFAULT_INLINE_LIMIT_BYTES),
+    )
+
 
 def _mw():
     from aqt import mw

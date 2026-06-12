@@ -4,10 +4,14 @@ import builtins
 import builtins as builtins_module
 import json
 import os
-import posix
 import sys
 from pathlib import Path
 from typing import Any
+
+try:
+    import posix as posix_module
+except ModuleNotFoundError:
+    posix_module = None
 
 MAX_RESULT_CHARS = 4000
 DEFAULT_INLINE_LIMIT_BYTES = 12_000
@@ -200,12 +204,7 @@ def _anki_snippet_globals() -> dict[str, object]:
 
     guarded_sys = GuardedModuleProxy(sys, {"exit": "sys.exit"})
     guarded_os = GuardedModuleProxy(os, {"_exit": "os._exit", "abort": "os.abort"})
-    guarded_posix = GuardedModuleProxy(posix, {"_exit": "posix._exit"})
-    guarded_modules = {
-        "sys": guarded_sys,
-        "os": guarded_os,
-        "posix": guarded_posix,
-    }
+    guarded_modules = _guarded_module_map(guarded_sys, guarded_os)
 
     guarded_builtins = dict(vars(builtins_module))
     guarded_builtins["exit"] = _blocked_callable("exit")
@@ -220,6 +219,16 @@ def _anki_snippet_globals() -> dict[str, object]:
         "result": None,
         "sys": guarded_sys,
     }
+
+
+def _guarded_module_map(guarded_sys: object, guarded_os: object) -> dict[str, object]:
+    guarded_modules = {
+        "sys": guarded_sys,
+        "os": guarded_os,
+    }
+    if posix_module is not None:
+        guarded_modules["posix"] = GuardedModuleProxy(posix_module, {"_exit": "posix._exit"})
+    return guarded_modules
 
 
 def _blocked_callable(name: str) -> Any:

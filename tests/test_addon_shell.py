@@ -20,7 +20,7 @@ TEST_TMP = Path(tempfile.gettempdir()) / "deckhand-anki-tests"
 from deckhand.bridge import BridgeStatus
 from deckhand.capabilities import anki_bridge_capability_payload, capability_payload
 from deckhand.command_catalog import command_catalog, validate_command_catalog
-from deckhand import dev_tools
+from deckhand import runtime_snippets
 from deckhand import bridge_transport
 from deckhand import import_export_tools
 from deckhand import connect_hosts
@@ -152,6 +152,15 @@ class AddonShellTests(unittest.TestCase):
         self.assertNotIn("FakeNoteStore", source)
         self.assertNotIn("Deckhand prototype", source)
         self.assertIn("anki_collection_unavailable", source)
+
+    def test_addon_lazy_loads_runtime_snippets(self):
+        source = (ADDON / "deckhand" / "addon.py").read_text(encoding="utf-8")
+        module_imports = source.split("def _register_default_tools", 1)[0]
+
+        self.assertNotIn("dev_tools", source)
+        self.assertNotIn("runtime_snippets", module_imports)
+        self.assertIn('_executor.register("anki_run_python", _run_python_snippet)', source)
+        self.assertIn("from . import runtime_snippets", source)
 
     def test_addon_no_longer_installs_qwebchannel_sidebar_bridge(self):
         source = (ADDON / "deckhand" / "addon.py").read_text(encoding="utf-8")
@@ -1697,16 +1706,16 @@ class AddonShellTests(unittest.TestCase):
         self.assertEqual(status.to_dict()["detail"], "test bridge")
 
     def test_snippet_executes_without_deckhand_approval_envelope(self):
-        original = dev_tools._anki_snippet_globals
-        dev_tools._anki_snippet_globals = lambda: {
+        original = runtime_snippets._anki_snippet_globals
+        runtime_snippets._anki_snippet_globals = lambda: {
             "__builtins__": {"len": len},
             "mw": object(),
             "result": None,
         }
         try:
-            result = dev_tools.run_python_snippet("result = len('mcp')")
+            result = runtime_snippets.run_python_snippet("result = len('mcp')")
         finally:
-            dev_tools._anki_snippet_globals = original
+            runtime_snippets._anki_snippet_globals = original
 
         self.assertEqual(result["result"], 3)
         self.assertTrue(result["resultInline"])
@@ -1722,45 +1731,45 @@ class AddonShellTests(unittest.TestCase):
         self.assertNotIn("approved", result)
 
     def test_snippet_executes_with_anki_globals(self):
-        original = dev_tools._anki_snippet_globals
-        dev_tools._anki_snippet_globals = lambda: {
+        original = runtime_snippets._anki_snippet_globals
+        runtime_snippets._anki_snippet_globals = lambda: {
             "__builtins__": {"len": len, "str": str},
             "mw": object(),
             "result": None,
         }
         try:
-            result = dev_tools.run_python_snippet("result = len(str(mw))")
+            result = runtime_snippets.run_python_snippet("result = len(str(mw))")
         finally:
-            dev_tools._anki_snippet_globals = original
+            runtime_snippets._anki_snippet_globals = original
 
         self.assertIn("result", result)
         self.assertIsInstance(result["result"], int)
 
     def test_snippet_executes_normal_imports(self):
-        original = dev_tools._anki_snippet_globals
-        dev_tools._anki_snippet_globals = lambda: {
+        original = runtime_snippets._anki_snippet_globals
+        runtime_snippets._anki_snippet_globals = lambda: {
             "__builtins__": __import__("builtins"),
             "mw": object(),
             "result": None,
         }
         try:
-            result = dev_tools.run_python_snippet("import math\nresult = math.ceil(1.2)")
+            result = runtime_snippets.run_python_snippet("import math\nresult = math.ceil(1.2)")
         finally:
-            dev_tools._anki_snippet_globals = original
+            runtime_snippets._anki_snippet_globals = original
 
         self.assertEqual(result["result"], 2)
 
     def test_snippet_omits_large_result_without_mutating_result_data(self):
-        original = dev_tools._anki_snippet_globals
-        dev_tools._anki_snippet_globals = lambda: {
+        original = runtime_snippets._anki_snippet_globals
+        runtime_snippets._anki_snippet_globals = lambda: {
             "__builtins__": {"len": len},
             "mw": object(),
             "result": None,
         }
         try:
-            result = dev_tools.run_python_snippet("result = 'x' * 20", inline_limit_bytes=10)
+            result = runtime_snippets.run_python_snippet("result = 'x' * 20", inline_limit_bytes=10)
         finally:
-            dev_tools._anki_snippet_globals = original
+            runtime_snippets._anki_snippet_globals = original
 
         self.assertIsNone(result["result"])
         self.assertFalse(result["resultInline"])
@@ -1770,8 +1779,8 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("rerun with resultFilePath", result["message"])
 
     def test_snippet_writes_large_result_artifact(self):
-        original = dev_tools._anki_snippet_globals
-        dev_tools._anki_snippet_globals = lambda: {
+        original = runtime_snippets._anki_snippet_globals
+        runtime_snippets._anki_snippet_globals = lambda: {
             "__builtins__": {"len": len},
             "mw": object(),
             "result": None,
@@ -1779,13 +1788,13 @@ class AddonShellTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "result.json"
             try:
-                result = dev_tools.run_python_snippet(
+                result = runtime_snippets.run_python_snippet(
                     "result = {'text': 'x' * 20}",
                     result_file_path=str(path),
                     inline_limit_bytes=1,
                 )
             finally:
-                dev_tools._anki_snippet_globals = original
+                runtime_snippets._anki_snippet_globals = original
 
             self.assertIsNone(result["result"])
             self.assertFalse(result["resultInline"])
@@ -1795,8 +1804,8 @@ class AddonShellTests(unittest.TestCase):
             self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {"text": "xxxxxxxxxxxxxxxxxxxx"})
 
     def test_snippet_text_result_format_artifact(self):
-        original = dev_tools._anki_snippet_globals
-        dev_tools._anki_snippet_globals = lambda: {
+        original = runtime_snippets._anki_snippet_globals
+        runtime_snippets._anki_snippet_globals = lambda: {
             "__builtins__": {},
             "mw": object(),
             "result": None,
@@ -1804,77 +1813,103 @@ class AddonShellTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "result.txt"
             try:
-                result = dev_tools.run_python_snippet(
+                result = runtime_snippets.run_python_snippet(
                     "result = 'plain text'",
                     result_file_path=str(path),
                     result_format="text",
                 )
             finally:
-                dev_tools._anki_snippet_globals = original
+                runtime_snippets._anki_snippet_globals = original
 
             self.assertEqual(path.read_text(encoding="utf-8"), "plain text")
             self.assertEqual(result["artifact"]["format"], "text")
 
     def test_snippet_unserializable_result_falls_back_to_repr(self):
-        original = dev_tools._anki_snippet_globals
-        dev_tools._anki_snippet_globals = lambda: {
+        original = runtime_snippets._anki_snippet_globals
+        runtime_snippets._anki_snippet_globals = lambda: {
             "__builtins__": {"object": object},
             "mw": object(),
             "result": None,
         }
         try:
-            result = dev_tools.run_python_snippet("result = object()")
+            result = runtime_snippets.run_python_snippet("result = object()")
         finally:
-            dev_tools._anki_snippet_globals = original
+            runtime_snippets._anki_snippet_globals = original
 
         self.assertIn("object object", result["result"])
 
     def test_snippet_blocks_builtin_exit(self):
-        original = dev_tools._anki_snippet_globals
-        dev_tools._anki_snippet_globals = lambda: {
-            "__builtins__": {"exit": dev_tools._blocked_callable("exit")},
+        original = runtime_snippets._anki_snippet_globals
+        runtime_snippets._anki_snippet_globals = lambda: {
+            "__builtins__": {"exit": runtime_snippets._blocked_callable("exit")},
             "mw": object(),
             "result": None,
         }
         try:
-            with self.assertRaises(dev_tools.DevToolError) as context:
-                dev_tools.run_python_snippet("exit()")
+            with self.assertRaises(runtime_snippets.DevToolError) as context:
+                runtime_snippets.run_python_snippet("exit()")
         finally:
-            dev_tools._anki_snippet_globals = original
+            runtime_snippets._anki_snippet_globals = original
 
         self.assertEqual(str(context.exception), "snippet_forbidden_operation:exit")
 
     def test_snippet_blocks_sys_exit(self):
-        original = dev_tools._anki_snippet_globals
-        dev_tools._anki_snippet_globals = lambda: {
+        original = runtime_snippets._anki_snippet_globals
+        runtime_snippets._anki_snippet_globals = lambda: {
             "__builtins__": {
-                "__import__": dev_tools._guarded_import(
-                    {"sys": dev_tools.GuardedModuleProxy(__import__("sys"), {"exit": "sys.exit"})}
+                "__import__": runtime_snippets._guarded_import(
+                    {"sys": runtime_snippets.GuardedModuleProxy(__import__("sys"), {"exit": "sys.exit"})}
                 )
             },
             "mw": object(),
             "result": None,
         }
         try:
-            with self.assertRaises(dev_tools.DevToolError) as context:
-                dev_tools.run_python_snippet("import sys\nsys.exit(2)")
+            with self.assertRaises(runtime_snippets.DevToolError) as context:
+                runtime_snippets.run_python_snippet("import sys\nsys.exit(2)")
         finally:
-            dev_tools._anki_snippet_globals = original
+            runtime_snippets._anki_snippet_globals = original
 
         self.assertEqual(str(context.exception), "snippet_forbidden_operation:sys.exit")
 
+    def test_snippet_guarded_modules_omits_posix_when_unavailable(self):
+        original = runtime_snippets.posix_module
+        runtime_snippets.posix_module = None
+        try:
+            guarded_modules = runtime_snippets._guarded_module_map(object(), object())
+        finally:
+            runtime_snippets.posix_module = original
+
+        self.assertNotIn("posix", guarded_modules)
+        self.assertIn("sys", guarded_modules)
+        self.assertIn("os", guarded_modules)
+
+    def test_snippet_guarded_modules_blocks_posix_exit_when_available(self):
+        fake_posix = SimpleNamespace(_exit=lambda _code=0: None)
+        original = runtime_snippets.posix_module
+        runtime_snippets.posix_module = fake_posix
+        try:
+            guarded_modules = runtime_snippets._guarded_module_map(object(), object())
+        finally:
+            runtime_snippets.posix_module = original
+
+        with self.assertRaises(runtime_snippets.DevToolError) as context:
+            guarded_modules["posix"]._exit(0)
+
+        self.assertEqual(str(context.exception), "snippet_forbidden_operation:posix._exit")
+
     def test_snippet_normalizes_system_exit(self):
-        original = dev_tools._anki_snippet_globals
-        dev_tools._anki_snippet_globals = lambda: {
+        original = runtime_snippets._anki_snippet_globals
+        runtime_snippets._anki_snippet_globals = lambda: {
             "__builtins__": __import__("builtins"),
             "mw": object(),
             "result": None,
         }
         try:
-            with self.assertRaises(dev_tools.DevToolError) as context:
-                dev_tools.run_python_snippet("raise SystemExit(3)")
+            with self.assertRaises(runtime_snippets.DevToolError) as context:
+                runtime_snippets.run_python_snippet("raise SystemExit(3)")
         finally:
-            dev_tools._anki_snippet_globals = original
+            runtime_snippets._anki_snippet_globals = original
 
         self.assertEqual(str(context.exception), "snippet_failed:SystemExit: 3")
 

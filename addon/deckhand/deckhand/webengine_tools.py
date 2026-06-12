@@ -12,7 +12,7 @@ from typing import Any, NamedTuple
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
-from .dev_tools import sanitize_result
+from .runtime_snippets import sanitize_result
 
 
 DEFAULT_HOST = "127.0.0.1"
