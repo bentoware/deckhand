@@ -5,4 +5,4 @@ version in sync; unit tests enforce both. The companion reports its crate
 version from ``/status`` and the add-on treats a mismatch as a stale helper.
 """
 
-ADDON_VERSION = "0.1.18"
+ADDON_VERSION = "0.1.19"
