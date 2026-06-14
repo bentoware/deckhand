@@ -114,7 +114,7 @@ def connect_recipe(client_id: str, mcp_url: str, token: str | None = None) -> di
             },
             {
                 "title": "Confirm it worked",
-                "body": 'Start a new Claude chat and ask, "Can you list my Anki decks?"',
+                "body": 'Start a new Claude chat and ask, "Use Deckhand and list my Anki decks."',
             },
             {
                 "title": "Manual fallback",

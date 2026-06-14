@@ -1339,6 +1339,7 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("Deckhand extension", recipe["steps"][0])
         raw = connect_hosts.connect_recipe(management.CLIENT_CLAUDE_DESKTOP, "http://127.0.0.1:28765/mcp", "tok123")
         self.assertEqual(raw["steps"][0].get("embed"), "mcpb")
+        self.assertIn("Use Deckhand and list my Anki decks.", recipe["steps"][2])
         self.assertTrue(any("custom connector" in step for step in recipe["steps"]))
         self.assertTrue(any("access token automatically" in step for step in recipe["steps"]))
         self.assertNotIn("tok123", recipe["snippet"])
