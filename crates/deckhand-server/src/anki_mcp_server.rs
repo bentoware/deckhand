@@ -1,7 +1,7 @@
 use rmcp::{
     model::{
-        CallToolRequestParams, CallToolResult, Content, ErrorData as McpError, Implementation,
-        JsonObject, ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
+        CallToolRequestParams, CallToolResult, ErrorData as McpError, Implementation, JsonObject,
+        ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
         ToolAnnotations,
     },
     service::RequestContext,
@@ -176,8 +176,7 @@ fn call_tool_result(tool: &str, value: Value) -> anyhow::Result<CallToolResult> 
         .ok_or_else(|| anyhow::anyhow!("malformed_anki_bridge_tool_result"))?;
     if ok {
         let payload = params.get("result").cloned().unwrap_or(Value::Null);
-        let summary = tool_success_summary(tool, &payload);
-        Ok(structured_tool_result(payload, false, summary))
+        Ok(structured_tool_result(payload, false))
     } else {
         let error = params
             .get("error")
@@ -185,48 +184,18 @@ fn call_tool_result(tool: &str, value: Value) -> anyhow::Result<CallToolResult> 
             .unwrap_or("anki_tool_failed")
             .to_string();
         let payload = json!({ "tool": tool, "error": error });
-        Ok(structured_tool_result(
-            payload,
-            true,
-            format!("{tool}: {error}"),
-        ))
+        Ok(structured_tool_result(payload, true))
     }
 }
 
-fn structured_tool_result(payload: Value, is_error: bool, summary: String) -> CallToolResult {
+fn structured_tool_result(payload: Value, is_error: bool) -> CallToolResult {
     let mut result = if is_error {
-        CallToolResult::structured_error(payload.clone())
+        CallToolResult::structured_error(payload)
     } else {
-        CallToolResult::structured(payload.clone())
+        CallToolResult::structured(payload)
     };
-    result.content = vec![Content::text(tool_text_content(&summary, &payload))];
+    result.content.clear();
     result
-}
-
-fn tool_text_content(summary: &str, payload: &Value) -> String {
-    if payload.is_null() {
-        return summary.to_string();
-    }
-    match serde_json::to_string_pretty(payload) {
-        Ok(rendered) => format!("{summary}\n\n```json\n{rendered}\n```"),
-        Err(_) => summary.to_string(),
-    }
-}
-
-fn tool_success_summary(tool: &str, payload: &Value) -> String {
-    if let Some(path) = payload.pointer("/artifact/path").and_then(Value::as_str) {
-        return format!("{tool}: wrote {path}");
-    }
-    if let Some(path) = payload.get("path").and_then(Value::as_str) {
-        return format!("{tool}: wrote {path}");
-    }
-    if let Some(count) = payload.get("count").and_then(Value::as_i64) {
-        return format!("{tool}: {count} result(s)");
-    }
-    if let Some(count) = payload.get("toolCount").and_then(Value::as_i64) {
-        return format!("{tool}: {count} tool(s)");
-    }
-    format!("{tool}: ok")
 }
 
 #[cfg(test)]
@@ -370,6 +339,7 @@ mod tests {
         let structured = result.structured_content.unwrap();
 
         assert_eq!(result.is_error, Some(false));
+        assert!(result.content.is_empty());
         assert_eq!(structured["count"], 2);
         assert!(structured.get("params").is_none());
         assert!(structured.get("method").is_none());
@@ -377,10 +347,6 @@ mod tests {
         assert!(structured.get("result").is_none());
         assert!(structured.get("error").is_none());
         assert!(structured.get("durationMs").is_none());
-        assert_eq!(
-            serde_json::to_value(&result.content).unwrap()[0]["text"],
-            "anki_run_python: 2 result(s)\n\n```json\n{\n  \"count\": 2,\n  \"noteIds\": [\n    1,\n    2\n  ],\n  \"query\": \"deckhand\"\n}\n```"
-        );
     }
 
     #[test]
@@ -403,13 +369,10 @@ mod tests {
         let structured = result.structured_content.unwrap();
 
         assert_eq!(result.is_error, Some(true));
+        assert!(result.content.is_empty());
         assert_eq!(structured["tool"], "anki_run_python");
         assert_eq!(structured["error"], "execution_failed: snippet failed");
         assert!(structured.get("durationMs").is_none());
-        assert_eq!(
-            serde_json::to_value(&result.content).unwrap()[0]["text"],
-            "anki_run_python: execution_failed: snippet failed\n\n```json\n{\n  \"error\": \"execution_failed: snippet failed\",\n  \"tool\": \"anki_run_python\"\n}\n```"
-        );
     }
 
     #[test]
