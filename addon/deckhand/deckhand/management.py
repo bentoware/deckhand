@@ -256,6 +256,7 @@ def _build_management_dialog(mw: Any, anki_tools: list[str], logger=None, initia
     tabs.addTab(_build_connect_tab(tabs, logger=logger, initial_client=initial_client), "Connect")
     tabs.addTab(_build_status_tab(tabs, anki_tools, logger=logger), "Status")
     tabs.addTab(_build_server_tab(tabs, logger=logger), "Server")
+    tabs.addTab(_build_tts_tab(tabs, logger=logger), "TTS")
     tabs.addTab(_build_skills_tab(tabs, logger=logger), "Skills")
     tabs.addTab(_build_about_tab(tabs, logger=logger), "About")
     layout.addWidget(tabs, 1)
@@ -596,6 +597,134 @@ def _build_server_tab(parent: Any, logger=None) -> Any:
     layout.addStretch(1)
     refresh_state()
     return widget
+
+
+def _build_tts_tab(parent: Any, logger=None) -> Any:
+    from aqt.qt import (
+        QCheckBox,
+        QFormLayout,
+        QLabel,
+        QLineEdit,
+        QPushButton,
+        QScrollArea,
+        QVBoxLayout,
+        QWidget,
+    )
+
+    root = QWidget(parent)
+    root_layout = QVBoxLayout(root)
+    root_layout.setSpacing(10)
+    scroll = QScrollArea(root)
+    scroll.setWidgetResizable(True)
+    content = QWidget(scroll)
+    layout = QVBoxLayout(content)
+    layout.setSpacing(10)
+    status_label = QLabel("")
+    status_label.setWordWrap(True)
+    layout.addWidget(status_label)
+    field_groups: dict[str, dict[str, Any]] = {}
+
+    def add_provider_card(title: str, provider: str, fields: list[tuple[str, str, str]], bool_fields: list[tuple[str, str]] | None = None) -> None:
+        config = settings.tts_provider_settings(provider)
+        card = _section_frame()
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(14, 12, 14, 12)
+        card_layout.setSpacing(8)
+        card_layout.addWidget(_section_title(title))
+        form = QFormLayout()
+        controls: dict[str, Any] = {}
+        for key, label, kind in fields:
+            field = QLineEdit(str(config.get(key, "")))
+            if kind == "secret":
+                field.setEchoMode(QLineEdit.Password)
+            controls[key] = field
+            form.addRow(label, field)
+        for key, label in bool_fields or []:
+            checkbox = QCheckBox("")
+            checkbox.setChecked(bool(config.get(key)))
+            controls[key] = checkbox
+            form.addRow(label, checkbox)
+        card_layout.addLayout(form)
+        field_groups[provider] = controls
+        layout.addWidget(card)
+
+    add_provider_card(
+        "OpenAI",
+        "openai",
+        [
+            ("apiKey", "API key", "secret"),
+            ("model", "Model", "text"),
+            ("voice", "Voice", "text"),
+            ("responseFormat", "Format", "text"),
+        ],
+    )
+    add_provider_card(
+        "Gemini",
+        "gemini",
+        [
+            ("apiKey", "API key", "secret"),
+            ("model", "Model", "text"),
+            ("voice", "Voice", "text"),
+            ("languageCode", "Language", "text"),
+            ("promptPrefix", "Prompt prefix", "text"),
+        ],
+    )
+    add_provider_card(
+        "xAI / Grok",
+        "xai",
+        [
+            ("apiKey", "API key", "secret"),
+            ("voice", "Voice", "text"),
+            ("language", "Language", "text"),
+            ("sampleRate", "Sample rate", "number"),
+            ("bitRate", "Bit rate", "number"),
+        ],
+    )
+    add_provider_card(
+        "ElevenLabs",
+        "elevenlabs",
+        [
+            ("apiKey", "API key", "secret"),
+            ("voiceId", "Voice ID", "text"),
+            ("modelId", "Model", "text"),
+            ("outputFormat", "Output format", "text"),
+            ("languageCode", "Language", "text"),
+            ("stability", "Stability", "number"),
+            ("similarityBoost", "Similarity boost", "number"),
+            ("style", "Style", "number"),
+            ("speed", "Speed", "number"),
+            ("applyTextNormalization", "Text normalization", "text"),
+        ],
+        [
+            ("useSpeakerBoost", "Speaker boost"),
+            ("applyLanguageTextNormalization", "Language normalization"),
+            ("enableLogging", "Provider logging"),
+        ],
+    )
+
+    def field_value(control: Any) -> Any:
+        if hasattr(control, "isChecked"):
+            return bool(control.isChecked())
+        text = control.text().strip()
+        try:
+            return int(text) if text.isdigit() else float(text)
+        except ValueError:
+            return text
+
+    def save() -> None:
+        for provider, controls in field_groups.items():
+            settings.set_tts_provider_settings(provider, {key: field_value(control) for key, control in controls.items()})
+        status_label.setText("Saved TTS provider settings. Agents can inspect anki_runtime_info.deckhand.ttsSurface.")
+        if logger:
+            logger("management.tts_settings_saved")
+
+    save_button = QPushButton("Save TTS settings")
+    save_button.clicked.connect(lambda _checked=False: save())
+    layout.addWidget(save_button)
+    layout.addStretch(1)
+    scroll.setWidget(content)
+    root_layout.addWidget(scroll, 1)
+    return root
 
 
 def _build_skills_tab(parent: Any, logger=None) -> Any:

@@ -28,11 +28,13 @@ WIZARD_PAGE_TITLES = [
     "Welcome",
     "Choose your app",
     "Connect your app",
+    "Set up voices",
     "Check and finish",
 ]
 WIZARD_PLAN = [
     ("Pick your AI app", "Claude, Codex, or any other MCP-capable assistant."),
     ("Connect it to Anki", "Install a small plugin or extension, or paste a command — no accounts, no cloud."),
+    ("Add voices if you want", "Optional TTS keys let agents create spoken study audio."),
     ("Check and study", "Run a connection check, then ask your assistant about your decks."),
 ]
 WELCOME_SKIP_ACTION = "Skip for now"
@@ -190,7 +192,51 @@ def _show_welcome_dialog(mw: Any, open_setup: Callable[..., None] | None, logger
     connect_layout.addWidget(recipe_scroll, 1)
     stack.addWidget(connect_page)
 
-    # Page 4: verify the plumbing and finish.
+    # Page 4: optional TTS provider setup.
+    tts_page = QWidget()
+    tts_layout = QVBoxLayout(tts_page)
+    tts_layout.setContentsMargins(0, 0, 0, 0)
+    tts_layout.setSpacing(10)
+    tts_layout.addWidget(ui.title_label("Set up voices", size=20))
+    tts_intro = QLabel(
+        "Optional text-to-speech settings let assistants generate spoken hints, examples, and review audio "
+        "from Anki. Add provider keys in the Deckhand panel's TTS tab when you want this."
+    )
+    tts_intro.setWordWrap(True)
+    tts_layout.addWidget(tts_intro)
+
+    tts_card = ui.section_frame()
+    tts_card_layout = QVBoxLayout(tts_card)
+    tts_card_layout.setContentsMargins(16, 14, 16, 14)
+    tts_card_layout.setSpacing(10)
+    tts_card_layout.addWidget(ui.section_title("Supported providers"))
+    for provider_title, provider_detail in [
+        ("OpenAI", "Straightforward MP3 speech for quick study clips."),
+        ("Gemini", "Expressive prompt-steered WAV output with prebuilt voices."),
+        ("xAI / Grok", "Simple voice, language, and MP3 output controls."),
+        ("ElevenLabs", "Detailed voice controls such as stability, style, speed, and continuity."),
+    ]:
+        provider_row = QHBoxLayout()
+        provider_row.setSpacing(10)
+        provider_row.addWidget(ui.status_pill(provider_title, "neutral"), 0, Qt.AlignmentFlag.AlignTop)
+        provider_text = QLabel(provider_detail)
+        provider_text.setWordWrap(True)
+        provider_row.addWidget(provider_text, 1)
+        tts_card_layout.addLayout(provider_row)
+    tts_layout.addWidget(tts_card)
+
+    tts_tip = QHBoxLayout()
+    tts_tip.setSpacing(8)
+    tts_tip.addWidget(ui.status_pill("Private", "ok"))
+    tts_tip.addWidget(
+        ui.muted_label("Provider keys stay in Deckhand settings; agents only see configured status and safe schemas."),
+        1,
+    )
+    tts_layout.addLayout(tts_tip)
+    tts_layout.addStretch(1)
+    stack.addWidget(tts_page)
+
+    # Page 5: verify the plumbing and finish.
     finish_page = QWidget()
     finish_layout = QVBoxLayout(finish_page)
     finish_layout.setContentsMargins(0, 0, 0, 0)
@@ -275,7 +321,7 @@ def _show_welcome_dialog(mw: Any, open_setup: Callable[..., None] | None, logger
     def go_to(index: int) -> None:
         if index == 2:
             recipe_view["render"](connect_hosts.connect_recipe(selected_client["id"], mcp_url, token))
-        if index == 3:
+        if index == 4:
             label = connect_hosts.host_label(selected_client["id"])
             verify_hint.setText(
                 f'Once {label} has restarted, ask it: "Can you list my Anki decks?" '

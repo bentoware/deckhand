@@ -6,6 +6,7 @@ import sys
 from typing import Any
 
 from .command_catalog import anki_sdk_reference_paths
+from . import tts
 
 
 def runtime_info(mw: Any) -> dict[str, Any]:
@@ -38,6 +39,13 @@ def runtime_info(mw: Any) -> dict[str, Any]:
         "deckhand": {
             "addonDir": str(Path(__file__).resolve().parents[1]),
             "moduleDir": str(Path(__file__).resolve().parent),
+            "ttsSurface": {
+                "module": "deckhand.tts",
+                "importExample": "import deckhand.tts as tts",
+                "usage": "result = tts.render(provider='openai', text='hello', out='/tmp/hello.mp3')",
+                "providers": tts.providers(),
+                "schema": tts.schema(),
+            },
         },
         "sdkPaths": {
             "anki": anki_path,

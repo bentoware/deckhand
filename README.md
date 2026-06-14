@@ -7,6 +7,7 @@
 <p align="center"><em>Resourceful. Loyal. Always on watch.</em></p>
 
 <p align="center"><a href="https://deckhandforanki.com"><strong>deckhandforanki.com</strong></a></p>
+<p align="center"><a href="https://ankiweb.net/shared/info/1017921320"><strong>AnkiWeb add-on page</strong></a></p>
 
 <p align="center">
   <a href="https://github.com/bentoware/deckhand/releases/latest"><img src="https://img.shields.io/github/v/release/bentoware/deckhand?label=release&color=2b6cb0" alt="Latest release" /></a>

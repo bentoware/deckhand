@@ -37,6 +37,7 @@ from deckhand import settings
 from deckhand import skills
 from deckhand import skills_updates
 from deckhand import state_paths
+from deckhand import tts
 from deckhand import tool_visibility
 from deckhand import updates
 from deckhand import welcome
@@ -1045,6 +1046,17 @@ class AddonShellTests(unittest.TestCase):
         self.assertNotIn("tool_visibility.save_visible_tool_names", source)
         self.assertIn("QPlainTextEdit", source)
 
+    def test_management_ui_exposes_tts_provider_settings(self):
+        source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
+
+        self.assertIn('tabs.addTab(_build_tts_tab(tabs, logger=logger), "TTS")', source)
+        self.assertIn('"OpenAI"', source)
+        self.assertIn('"Gemini"', source)
+        self.assertIn('"xAI / Grok"', source)
+        self.assertIn('"ElevenLabs"', source)
+        self.assertIn("settings.set_tts_provider_settings", source)
+        self.assertIn("field.setEchoMode(QLineEdit.Password)", source)
+
     def test_tool_view_models_join_live_tools_with_catalog_metadata(self):
         models = management.tool_view_models(["anki_run_python", "anki_runtime_info", "anki_removed_prototype"])
         by_name = {model["name"]: model for model in models}
@@ -1096,6 +1108,122 @@ class AddonShellTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertGreater(len(first), 24)
         self.assertNotEqual(first, regenerated)
+
+    def test_tts_schema_reports_provider_parameters_without_secrets(self):
+        payload = tts.schema()
+        encoded = json.dumps(payload)
+
+        self.assertEqual(payload["module"], "deckhand.tts")
+        self.assertIn("openai", payload["providers"])
+        self.assertIn("gemini", payload["providers"])
+        self.assertIn("xai", payload["providers"])
+        self.assertIn("elevenlabs", payload["providers"])
+        self.assertIn("stability", payload["providers"]["elevenlabs"]["properties"])
+        self.assertNotIn("apiKey", encoded)
+        self.assertNotIn("secret", encoded.lower())
+
+    def test_tts_providers_report_configured_status_without_secret_values(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env = {
+                "DECKHAND_ANKI_EXTENSION_STATE_ROOT": temp_dir,
+                "DECKHAND_OPENAI_API_KEY": "",
+                "DECKHAND_GEMINI_API_KEY": "",
+                "DECKHAND_XAI_API_KEY": "",
+                "DECKHAND_ELEVENLABS_API_KEY": "",
+            }
+            with mock.patch.dict(os.environ, env):
+                settings.set_tts_provider_settings("openai", {"apiKey": "sk-test-secret"})
+                settings.set_tts_provider_settings("elevenlabs", {"apiKey": "eleven-secret"})
+                by_name = {provider["name"]: provider for provider in tts.providers()}
+
+        self.assertTrue(by_name["openai"]["configured"])
+        self.assertFalse(by_name["elevenlabs"]["configured"])
+        self.assertEqual(by_name["elevenlabs"]["missingConfig"], ["voiceId"])
+        self.assertNotIn("sk-test-secret", json.dumps(by_name))
+        self.assertNotIn("eleven-secret", json.dumps(by_name))
+
+    def test_tts_request_builders_match_provider_contracts(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env = {
+                "DECKHAND_ANKI_EXTENSION_STATE_ROOT": temp_dir,
+                "DECKHAND_OPENAI_API_KEY": "",
+                "DECKHAND_GEMINI_API_KEY": "",
+                "DECKHAND_XAI_API_KEY": "",
+                "DECKHAND_ELEVENLABS_API_KEY": "",
+            }
+            with mock.patch.dict(os.environ, env):
+                settings.set_tts_provider_settings("openai", {"apiKey": "openai-key"})
+                settings.set_tts_provider_settings("gemini", {"apiKey": "gemini-key", "voice": "Puck", "languageCode": "ja-JP", "promptPrefix": "Speak this test:"})
+                settings.set_tts_provider_settings("xai", {"apiKey": "xai-key", "voice": "leo", "language": "ja"})
+                settings.set_tts_provider_settings("elevenlabs", {"apiKey": "eleven-key", "voiceId": "voice-123"})
+
+                openai = tts.build_request("openai", "hello", {"voice": "shimmer"})
+                gemini = tts.build_request("gemini", "hello", {})
+                xai = tts.build_request("grok", "hello", {"bit_rate": 64000})
+                eleven = tts.build_request("elevenlabs", "hello", {"stability": 0.35, "seed": 42})
+
+        self.assertEqual(openai["body"], {"model": "gpt-4o-mini-tts", "voice": "shimmer", "input": "hello", "response_format": "mp3"})
+        self.assertIn("/models/gemini-3.1-flash-tts-preview:generateContent", gemini["url"])
+        self.assertEqual(gemini["body"]["contents"][0]["parts"][0]["text"], "Speak this test: hello")
+        self.assertEqual(gemini["body"]["generationConfig"]["responseModalities"], ["AUDIO"])
+        self.assertEqual(gemini["body"]["generationConfig"]["speechConfig"]["languageCode"], "ja-JP")
+        self.assertEqual(gemini["body"]["generationConfig"]["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]["voiceName"], "Puck")
+        self.assertEqual(xai["body"]["voice_id"], "leo")
+        self.assertEqual(xai["body"]["language"], "ja")
+        self.assertEqual(xai["body"]["output_format"], {"codec": "mp3", "sample_rate": 24000, "bit_rate": 64000})
+        self.assertIn("output_format=mp3_44100_128", eleven["url"])
+        self.assertEqual(eleven["body"]["voice_settings"]["stability"], 0.35)
+        self.assertEqual(eleven["body"]["seed"], 42)
+
+    def test_tts_preview_redacts_auth_headers(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env = {
+                "DECKHAND_ANKI_EXTENSION_STATE_ROOT": temp_dir,
+                "DECKHAND_ELEVENLABS_API_KEY": "",
+            }
+            with mock.patch.dict(os.environ, env):
+                settings.set_tts_provider_settings("elevenlabs", {"apiKey": "eleven-secret", "voiceId": "voice-123"})
+                preview = tts.preview_request("elevenlabs", text="hello", stability=0.4)
+
+        self.assertEqual(preview["headers"]["xi-api-key"], "[redacted]")
+        self.assertEqual(preview["body"]["voice_settings"]["stability"], 0.4)
+        self.assertNotIn("eleven-secret", json.dumps(preview))
+
+    def test_tts_wav_from_pcm16_wraps_gemini_audio(self):
+        wav = tts.wav_from_pcm16(b"\x01\x00\x02\x00", 24000)
+
+        self.assertEqual(wav[:4], b"RIFF")
+        self.assertEqual(wav[8:12], b"WAVE")
+        self.assertEqual(wav[24:28], (24000).to_bytes(4, "little"))
+        self.assertEqual(wav[-4:], b"\x01\x00\x02\x00")
+
+    def test_runtime_info_exposes_tts_surface_without_provider_keys(self):
+        collection = SimpleNamespace(
+            sched=SimpleNamespace(version=3),
+            media=SimpleNamespace(dir=lambda: "/tmp/collection.media"),
+        )
+        mw = SimpleNamespace(
+            state="deckBrowser",
+            col=collection,
+            pm=SimpleNamespace(name=lambda: "Test User", base="/tmp/Anki2"),
+            addonManager=SimpleNamespace(addonsFolder=lambda: "/tmp/addons21"),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env = {
+                "DECKHAND_ANKI_EXTENSION_STATE_ROOT": temp_dir,
+                "DECKHAND_OPENAI_API_KEY": "",
+            }
+            with mock.patch.dict(os.environ, env):
+                settings.set_tts_provider_settings("openai", {"apiKey": "openai-secret"})
+                info = runtime_tools.runtime_info(mw)
+
+        surface = info["deckhand"]["ttsSurface"]
+        encoded = json.dumps(surface)
+        self.assertEqual(surface["module"], "deckhand.tts")
+        self.assertIn("tts.render", surface["usage"])
+        self.assertIn("openai", surface["schema"]["providers"])
+        self.assertNotIn("openai-secret", encoded)
+        self.assertNotIn("apiKey", encoded)
 
     def test_companion_port_prefers_env_over_settings(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1641,9 +1769,13 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn("connect_hosts.connect_hosts()", source)
         self.assertIn("connect_hosts.CLIENT_CODEX_DESKTOP", source)
         self.assertIn("ui.build_recipe_view", source)
+        self.assertIn("Set up voices", source)
+        self.assertIn("OpenAI", source)
+        self.assertIn("ElevenLabs", source)
+        self.assertIn("Provider keys stay in Deckhand settings", source)
         self.assertIn("management.run_connection_checks()", source)
         self.assertIn('open_setup(selected_client["id"])', source)
-        self.assertEqual(len(welcome.WIZARD_PAGE_TITLES), 4)
+        self.assertEqual(len(welcome.WIZARD_PAGE_TITLES), 5)
 
     def test_skills_tab_offers_codex_and_update_check(self):
         source = (ADDON / "deckhand" / "management.py").read_text(encoding="utf-8")
@@ -1828,8 +1960,11 @@ class AddonShellTests(unittest.TestCase):
         backup_description = entries["anki_backup_create"].description
         run_python_description = entries["anki_run_python"].description
         runtime_description = entries["anki_runtime_info"].description
+        self.assertIn("does not include media files", backup_description)
         self.assertIn("Use before major collection operations", backup_description)
         self.assertIn("bulk edits, deletes, imports, template changes, or scheduling changes", backup_description)
+        self.assertIn("created:false", backup_description)
+        self.assertIn("includeMedia:true", backup_description)
         self.assertIn("Prefer Anki APIs via mw/aqt", run_python_description)
         self.assertIn("do not edit the collection SQLite database or media folder directly", run_python_description)
         self.assertIn("main Qt thread", run_python_description)

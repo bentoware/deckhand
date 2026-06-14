@@ -41,6 +41,9 @@ def anki_run_python_tool_description(home: Path | None = None, *, resolve_paths:
         "result = web.page().html(file=\"/tmp/anki.html\"); "
         "result = web.page().eval(\"document.body.innerText\"). Discover more with: import inspect, "
         "deckhand.web as web; result = {\"doc\": inspect.getdoc(web), \"members\": [x for x in dir(web) if not x.startswith(\"_\")]}. "
+        "For text-to-speech generation, use the bundled SDK and user-managed provider settings: import deckhand.tts as tts; "
+        "result = tts.render(provider=\"elevenlabs\", text=\"hello\", out=\"/tmp/hello.mp3\"); inspect dynamic provider schemas with tts.schema() "
+        "or anki_runtime_info.deckhand.ttsSurface. "
         "Small results are returned in a result envelope. For large fields, rendered HTML, bulk note data, "
         "logs, or diagnostics, pass resultFilePath/resultFormat or use deckhand.web file= helpers so full "
         "data is written as a local artifact instead of being omitted from the inline MCP response. For local Anki SDK/source reference, inspect "
@@ -168,7 +171,7 @@ COMMAND_CATALOG: tuple[CommandCatalogEntry, ...] = (
     _entry("anki_export_deck_snapshot", "read", "Write a Deckhand JSON audit snapshot of decks, models, and deck stats to a required local file path. Returns artifact metadata and summary only.", status="implemented", input_schema=_schema({"filePath": FILE_PATH, "overwrite": {"type": "boolean"}}, ["filePath"]), evidence="artifact"),
     _entry("anki_export_deck_package", "read", "Export an Anki deck package to a required local file path using Anki's native package export APIs. Returns artifact metadata only.", status="implemented", input_schema=_schema({"filePath": FILE_PATH, "deck": {"type": "string"}, "includeMedia": {"type": "boolean"}, "includeScheduling": {"type": "boolean"}, "overwrite": {"type": "boolean"}}, ["filePath"]), evidence="artifact"),
     _entry("anki_export_collection_package", "read", "Export a modern Anki collection package to a required local file path using Anki's native collection export API. Returns artifact metadata only.", status="implemented", input_schema=_schema({"filePath": FILE_PATH, "includeMedia": {"type": "boolean"}, "overwrite": {"type": "boolean"}}, ["filePath"]), evidence="artifact"),
-    _entry("anki_backup_create", "mutation", "Create a native Anki no-media collection backup in a required local folder using Anki's backup API. Use before major collection operations such as bulk edits, deletes, imports, template changes, or scheduling changes. Returns backup path metadata only.", status="implemented", input_schema=_schema({"folderPath": FOLDER_PATH, "force": {"type": "boolean"}, "waitForCompletion": {"type": "boolean"}}, ["folderPath"]), evidence="artifact"),
+    _entry("anki_backup_create", "mutation", "Create a native Anki collection backup in a required local folder using Anki's backup API. This backs up the collection database only; it does not include media files. Use before major collection operations such as bulk edits, deletes, imports, template changes, or scheduling changes. If the result has created:false, inspect status/reason: Anki may have safely skipped backup creation because the collection had no changes. For media-inclusive safety before media mutations, export a deck or collection package with includeMedia:true instead.", status="implemented", input_schema=_schema({"folderPath": FOLDER_PATH, "force": {"type": "boolean"}, "waitForCompletion": {"type": "boolean"}}, ["folderPath"]), evidence="artifact"),
     _entry(
         "anki_run_python",
         "dev_exec",

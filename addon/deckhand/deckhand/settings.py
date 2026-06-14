@@ -29,6 +29,47 @@ _SETTING_DEFAULTS: dict[str, Any] = {
     "skillsAutoUpdateEnabled": True,
     "lastSkillsSyncMs": 0,
     "welcomeShown": False,
+    "tts": {
+        "openai": {
+            "apiKey": "",
+            "model": "gpt-4o-mini-tts",
+            "voice": "alloy",
+            "responseFormat": "mp3",
+            "url": "https://api.openai.com/v1/audio/speech",
+        },
+        "gemini": {
+            "apiKey": "",
+            "model": "gemini-3.1-flash-tts-preview",
+            "voice": "Kore",
+            "languageCode": "",
+            "promptPrefix": "Say naturally and clearly:",
+            "url": "https://generativelanguage.googleapis.com/v1beta",
+        },
+        "xai": {
+            "apiKey": "",
+            "voice": "eve",
+            "language": "en",
+            "sampleRate": 24000,
+            "bitRate": 128000,
+            "url": "https://api.x.ai/v1/tts",
+        },
+        "elevenlabs": {
+            "apiKey": "",
+            "voiceId": "",
+            "modelId": "eleven_multilingual_v2",
+            "outputFormat": "mp3_44100_128",
+            "languageCode": "",
+            "stability": 0.5,
+            "similarityBoost": 0.75,
+            "style": 0,
+            "speed": 1,
+            "useSpeakerBoost": True,
+            "applyTextNormalization": "auto",
+            "applyLanguageTextNormalization": False,
+            "enableLogging": True,
+            "url": "https://api.elevenlabs.io/v1/text-to-speech",
+        },
+    },
 }
 
 
@@ -60,6 +101,53 @@ def update(values: dict[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return payload
+
+
+def tts_settings() -> dict[str, Any]:
+    configured = get("tts", {})
+    configured = configured if isinstance(configured, dict) else {}
+    defaults = _SETTING_DEFAULTS["tts"]
+    merged: dict[str, Any] = {}
+    for provider, provider_defaults in defaults.items():
+        provider_config = configured.get(provider, {})
+        if not isinstance(provider_config, dict):
+            provider_config = {}
+        merged[provider] = {**provider_defaults, **provider_config}
+    return _apply_tts_env_overrides(merged)
+
+
+def tts_provider_settings(provider: str) -> dict[str, Any]:
+    return dict(tts_settings().get(provider, {}))
+
+
+def set_tts_provider_settings(provider: str, values: dict[str, Any]) -> dict[str, Any]:
+    current = read_settings()
+    tts = current.get("tts", {})
+    if not isinstance(tts, dict):
+        tts = {}
+    provider_config = tts.get(provider, {})
+    if not isinstance(provider_config, dict):
+        provider_config = {}
+    tts[provider] = {**provider_config, **values}
+    return update({"tts": tts})
+
+
+def _apply_tts_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
+    overrides = {
+        ("openai", "apiKey"): "DECKHAND_OPENAI_API_KEY",
+        ("openai", "url"): "DECKHAND_OPENAI_SPEECH_URL",
+        ("gemini", "apiKey"): "DECKHAND_GEMINI_API_KEY",
+        ("gemini", "url"): "DECKHAND_GEMINI_API_BASE_URL",
+        ("xai", "apiKey"): "DECKHAND_XAI_API_KEY",
+        ("xai", "url"): "DECKHAND_XAI_TTS_URL",
+        ("elevenlabs", "apiKey"): "DECKHAND_ELEVENLABS_API_KEY",
+        ("elevenlabs", "url"): "DECKHAND_ELEVENLABS_TTS_URL",
+    }
+    for (provider, key), env_name in overrides.items():
+        value = os.environ.get(env_name)
+        if value:
+            config.setdefault(provider, {})[key] = value
+    return config
 
 
 def companion_port() -> int:
