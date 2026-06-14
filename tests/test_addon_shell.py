@@ -22,6 +22,7 @@ from deckhand.bridge import BridgeStatus
 from deckhand.capabilities import anki_bridge_capability_payload, capability_payload
 from deckhand.command_catalog import command_catalog, validate_command_catalog
 from deckhand import runtime_snippets
+from deckhand import addon as addon_shell
 from deckhand import bridge_transport
 from deckhand import import_export_tools
 from deckhand import connect_hosts
@@ -1960,6 +1961,7 @@ class AddonShellTests(unittest.TestCase):
         entries = {entry.name: entry for entry in command_catalog()}
         backup_description = entries["anki_backup_create"].description
         run_python_description = entries["anki_run_python"].description
+        run_python_schema = entries["anki_run_python"].input_schema
         runtime_description = entries["anki_runtime_info"].description
         self.assertIn("does not include media files", backup_description)
         self.assertIn("Use before major collection operations", backup_description)
@@ -1983,6 +1985,9 @@ class AddonShellTests(unittest.TestCase):
         self.assertIn('result = web.page().html(file="/tmp/anki.html")', run_python_description)
         self.assertIn('result = web.page().eval("document.body.innerText")', run_python_description)
         self.assertIn("resultFilePath/resultFormat", run_python_description)
+        self.assertIn("code", run_python_schema.properties)
+        self.assertNotIn("snippet", run_python_schema.properties)
+        self.assertEqual(run_python_schema.required, ["code"])
         self.assertNotIn("safe anki_run_python snippets", runtime_description)
 
     def test_catalog_tracks_current_implemented_tools(self):
@@ -2084,6 +2089,35 @@ class AddonShellTests(unittest.TestCase):
 
         self.assertTrue(result.ok)
         self.assertEqual(result.result, {"args": {"ok": True}})
+
+    def test_run_python_executor_reads_code_without_snippet_alias(self):
+        with mock.patch.object(runtime_snippets, "run_python_snippet", return_value={"result": 3}) as run:
+            result = addon_shell._run_python_snippet(
+                {
+                    "code": "result = 3",
+                    "resultFilePath": "/tmp/deckhand-result.json",
+                    "resultFormat": "json",
+                    "inlineLimitBytes": 42,
+                }
+            )
+
+        self.assertEqual(result, {"result": 3})
+        run.assert_called_once_with(
+            "result = 3",
+            result_file_path="/tmp/deckhand-result.json",
+            result_format="json",
+            inline_limit_bytes=42,
+        )
+
+        with mock.patch.object(runtime_snippets, "run_python_snippet", return_value={"result": None}) as run:
+            addon_shell._run_python_snippet({"snippet": "result = 9"})
+
+        run.assert_called_once_with(
+            "",
+            result_file_path=None,
+            result_format="json",
+            inline_limit_bytes=runtime_snippets.DEFAULT_INLINE_LIMIT_BYTES,
+        )
 
     def test_direct_executor_reports_missing_tool(self):
         executor = DirectExecutor()

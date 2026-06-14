@@ -179,12 +179,12 @@ COMMAND_CATALOG: tuple[CommandCatalogEntry, ...] = (
         status="implemented",
         input_schema=_schema(
             {
-                "snippet": {"type": "string", "minLength": 1},
+                "code": {"type": "string", "minLength": 1},
                 "resultFilePath": {"type": "string", "minLength": 1, "description": "Optional local path for writing the full result artifact."},
                 "resultFormat": {"type": "string", "enum": ["json", "text"], "description": "Artifact/measurement format. Defaults to json."},
                 "inlineLimitBytes": {"type": "integer", "minimum": 0, "maximum": 64000, "description": "Maximum inline result bytes before omission. Defaults to 12000 and is capped at 64000."},
             },
-            ["snippet"],
+            ["code"],
         ),
     ),
     _entry("anki_runtime_info", "read", "Return compact live Anki, Python, Qt, profile, collection, media, add-on, and local SDK path information.", status="implemented"),

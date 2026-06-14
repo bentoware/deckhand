@@ -218,6 +218,9 @@ mod tests {
         assert_eq!(runtime.annotations["readOnlyHint"], true);
         assert_eq!(runtime.annotations["idempotentHint"], false);
         assert!(execute.input_schema["properties"].get("approved").is_none());
+        assert!(execute.input_schema["properties"].get("code").is_some());
+        assert!(execute.input_schema["properties"].get("snippet").is_none());
+        assert_eq!(execute.input_schema["required"], json!(["code"]));
         assert!(execute.input_schema["properties"]
             .get("resultFilePath")
             .is_some());

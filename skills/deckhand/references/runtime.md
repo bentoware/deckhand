@@ -4,7 +4,7 @@ Deckhand exposes exactly three MCP tools. There are no typed card/note/deck tool
 
 - `anki_runtime_info` — quick health check: is Anki running, which profile, collection open, current screen.
 - `anki_backup_create` — native no-media backup to a folder you choose. Call before bulk edits, deletes, imports, template or scheduling changes.
-- `anki_run_python` — runs your snippet **inside Anki's embedded Python interpreter** (the user never needs Python installed) **on the main Qt thread** (UI work is directly safe; long loops freeze the UI, so keep snippets short). Assign to a variable named `result` to return it.
+- `anki_run_python` — runs your `code` **inside Anki's embedded Python interpreter** (the user never needs Python installed) **on the main Qt thread** (UI work is directly safe; long loops freeze the UI, so keep code short). Assign to a variable named `result` to return it.
 
 ## Keep output compact
 

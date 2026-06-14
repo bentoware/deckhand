@@ -380,7 +380,7 @@ def _run_python_snippet(args: dict[str, object]) -> dict[str, object]:
     from . import runtime_snippets
 
     return runtime_snippets.run_python_snippet(
-        str(args.get("snippet", "")),
+        str(args.get("code", "")),
         result_file_path=str(args.get("resultFilePath", "")).strip() or None,
         result_format=str(args.get("resultFormat", "json")),
         inline_limit_bytes=args.get("inlineLimitBytes", runtime_snippets.DEFAULT_INLINE_LIMIT_BYTES),
